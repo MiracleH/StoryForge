@@ -3,8 +3,8 @@
  * Stage 2: 批量生成角色/场景/道具素材，带并发控制、重试、进度追踪
  */
 
-import { generateImage, generateSpeech, downloadImage, saveFile, isImageConfigured } from './ai';
-import { buildCharacterPrompt, buildBackgroundPrompt } from './style-consistency';
+import { generateImage, generateSpeech, saveFile, isImageConfigured } from './ai';
+import { buildCharacterSheetPrompt, buildSceneSheetPrompt, buildPropSheetPrompt } from './style-consistency';
 import { GeneratedAssetModel } from '../models/generated-asset';
 import { WorkflowTaskModel } from '../models/workflow-task';
 import { getDatabase } from '../database/setup';
@@ -73,12 +73,15 @@ async function generateWithRetry(
   throw new Error('Max retries exceeded');
 }
 
+type AIOpts = { api_key?: string; base_url?: string; model?: string };
+
 export async function generateCharacterAsset(
   character: any,
   stylePreset: string,
-  projectId: number
+  projectId: number,
+  opts?: AIOpts
 ): Promise<any> {
-  const prompt = character.image_prompt || buildCharacterPrompt(character, stylePreset);
+  const prompt = buildCharacterSheetPrompt(character, stylePreset);
 
   const asset = GeneratedAssetModel.create({
     project_id: projectId,
@@ -102,11 +105,7 @@ export async function generateCharacterAsset(
   });
 
   try {
-    const imageUrl = await generateWithRetry((task as any).id, async () => {
-      const url = await generateImage(prompt, { size: '1024x1024' });
-      const buffer = await downloadImage(url);
-      return saveFile(buffer, `ai-character-${character.id}-${Date.now()}.png`);
-    });
+    const imageUrl = await generateWithRetry((task as any).id, () => generateImage(prompt, { size: '1024x1024', ...opts }));
     GeneratedAssetModel.updateStatus((asset as any).id, 'completed', imageUrl);
     return { ...(asset as any), image_url: imageUrl, status: 'completed' };
   } catch (err: any) {
@@ -118,9 +117,10 @@ export async function generateCharacterAsset(
 export async function generateBackgroundAsset(
   scene: any,
   stylePreset: string,
-  projectId: number
+  projectId: number,
+  opts?: AIOpts
 ): Promise<any> {
-  const prompt = scene.image_prompt || buildBackgroundPrompt(scene, stylePreset);
+  const prompt = buildSceneSheetPrompt(scene, stylePreset);
 
   const asset = GeneratedAssetModel.create({
     project_id: projectId,
@@ -143,11 +143,7 @@ export async function generateBackgroundAsset(
   });
 
   try {
-    const imageUrl = await generateWithRetry((task as any).id, async () => {
-      const url = await generateImage(prompt, { size: '1792x1024' });
-      const buffer = await downloadImage(url);
-      return saveFile(buffer, `ai-bg-${scene.id}-${Date.now()}.png`);
-    });
+    const imageUrl = await generateWithRetry((task as any).id, () => generateImage(prompt, { size: '1792x1024', ...opts }));
     GeneratedAssetModel.updateStatus((asset as any).id, 'completed', imageUrl);
     return { ...(asset as any), image_url: imageUrl, status: 'completed' };
   } catch (err: any) {
@@ -159,9 +155,10 @@ export async function generateBackgroundAsset(
 export async function generatePropAsset(
   prop: any,
   stylePreset: string,
-  projectId: number
+  projectId: number,
+  opts?: AIOpts
 ): Promise<any> {
-  const prompt = prop.image_prompt || `${stylePreset} style, ${prop.name}, ${prop.description}, high quality, detailed`;
+  const prompt = buildPropSheetPrompt(prop, stylePreset);
 
   const asset = GeneratedAssetModel.create({
     project_id: projectId,
@@ -184,16 +181,39 @@ export async function generatePropAsset(
   });
 
   try {
-    const imageUrl = await generateWithRetry((task as any).id, async () => {
-      const url = await generateImage(prompt, { size: '1024x1024' });
-      const buffer = await downloadImage(url);
-      return saveFile(buffer, `ai-prop-${Date.now()}.png`);
-    });
+    const imageUrl = await generateWithRetry((task as any).id, () => generateImage(prompt, { size: '1024x1024', ...opts }));
     GeneratedAssetModel.updateStatus((asset as any).id, 'completed', imageUrl);
     return { ...(asset as any), image_url: imageUrl, status: 'completed' };
   } catch (err: any) {
     GeneratedAssetModel.updateStatus((asset as any).id, 'failed', undefined, err.message);
     return { ...(asset as any), status: 'failed', error_message: err.message };
+  }
+}
+
+export async function generateSingleAsset(assetId: number, opts?: AIOpts): Promise<void> {
+  const asset = GeneratedAssetModel.findById(assetId) as any;
+  if (!asset) throw new Error('Asset not found');
+
+  GeneratedAssetModel.updateStatus(assetId, 'generating');
+
+  try {
+    const db = getDatabase();
+    let imageUrl: string;
+    if (asset.asset_type === 'character_design') {
+      const char = db.prepare('SELECT * FROM characters WHERE id = ?').get(asset.entity_id) as any;
+      if (!char) throw new Error('Character not found');
+      imageUrl = await generateImage(asset.prompt || buildCharacterSheetPrompt(char), { size: '1024x1024', ...opts });
+    } else if (asset.asset_type === 'background') {
+      const scene = db.prepare('SELECT * FROM scenes WHERE id = ?').get(asset.entity_id) as any;
+      if (!scene) throw new Error('Scene not found');
+      imageUrl = await generateImage(asset.prompt || buildSceneSheetPrompt(scene), { size: '1792x1024', ...opts });
+    } else {
+      imageUrl = await generateImage(asset.prompt, { size: '1024x1024', ...opts });
+    }
+    GeneratedAssetModel.updateStatus(assetId, 'completed', imageUrl);
+  } catch (err: any) {
+    GeneratedAssetModel.updateStatus(assetId, 'failed', undefined, err.message);
+    throw err;
   }
 }
 
@@ -224,8 +244,8 @@ export async function generateAssetAudio(
   }
 }
 
-export async function processAssetQueue(projectId: number): Promise<void> {
-  if (!isImageConfigured()) {
+export async function processAssetQueue(projectId: number, opts?: { api_key?: string; base_url?: string; model?: string }): Promise<void> {
+  if (!opts?.api_key && !isImageConfigured()) {
     throw new Error('AI 图片生成未配置，请设置 AI_IMAGE_API_KEY 或 AI_API_KEY');
   }
 
@@ -246,11 +266,14 @@ export async function processAssetQueue(projectId: number): Promise<void> {
   const tasks: Promise<void>[] = [];
 
   for (const char of characters) {
+    if (db.prepare(
+      "SELECT id FROM generated_assets WHERE project_id = ? AND asset_type = 'character_design' AND entity_type = 'character' AND entity_id = ? AND episode_id IS NULL"
+    ).get(projectId, char.id)) continue;
     tasks.push(
       (async () => {
         await sem.acquire();
         try {
-          await generateCharacterAsset(char, stylePreset, projectId);
+          await generateCharacterAsset(char, stylePreset, projectId, opts);
           updateProjectProgress(projectId);
         } finally {
           sem.release();
@@ -260,11 +283,14 @@ export async function processAssetQueue(projectId: number): Promise<void> {
   }
 
   for (const scene of scenes) {
+    if (db.prepare(
+      "SELECT id FROM generated_assets WHERE project_id = ? AND asset_type = 'background' AND entity_type = 'scene' AND entity_id = ? AND episode_id IS NULL"
+    ).get(projectId, scene.id)) continue;
     tasks.push(
       (async () => {
         await sem.acquire();
         try {
-          await generateBackgroundAsset(scene, stylePreset, projectId);
+          await generateBackgroundAsset(scene, stylePreset, projectId, opts);
           updateProjectProgress(projectId);
         } finally {
           sem.release();
@@ -278,11 +304,7 @@ export async function processAssetQueue(projectId: number): Promise<void> {
       (async () => {
         await sem.acquire();
         try {
-          const url = await generateWithRetry(0, async () => {
-            const imgUrl = await generateImage(prop.prompt, { size: '1024x1024' });
-            const buffer = await downloadImage(imgUrl);
-            return saveFile(buffer, `ai-prop-${prop.id}-${Date.now()}.png`);
-          });
+          const url = await generateWithRetry(0, () => generateImage(prop.prompt, { size: '1024x1024', ...opts }));
           GeneratedAssetModel.updateStatus(prop.id, 'completed', url);
           updateProjectProgress(projectId);
         } catch (err: any) {
@@ -308,8 +330,8 @@ function updateEpisodeProgress(episodeId: number) {
   ).run(Math.round(progress * 10) / 10, episodeId);
 }
 
-export async function processAssetQueueForEpisode(projectId: number, episodeId: number): Promise<void> {
-  if (!isImageConfigured()) {
+export async function processAssetQueueForEpisode(projectId: number, episodeId: number, opts?: { api_key?: string; base_url?: string; model?: string }): Promise<void> {
+  if (!opts?.api_key && !isImageConfigured()) {
     throw new Error('AI 图片生成未配置，请设置 AI_IMAGE_API_KEY 或 AI_API_KEY');
   }
 
@@ -334,12 +356,15 @@ export async function processAssetQueueForEpisode(projectId: number, episodeId: 
   const tasks: Promise<void>[] = [];
 
   for (const char of characters) {
+    if (db.prepare(
+      "SELECT id FROM generated_assets WHERE episode_id = ? AND asset_type = 'character_design' AND entity_type = 'character' AND entity_id = ?"
+    ).get(episodeId, char.id)) continue;
     tasks.push(
       (async () => {
         await sem.acquire();
         try {
           // Use episode-aware create methods
-          const prompt = char.image_prompt || buildCharacterPrompt(char, stylePreset);
+          const prompt = buildCharacterSheetPrompt(char, stylePreset);
           const asset = GeneratedAssetModel.createWithEpisode({
             project_id: projectId,
             episode_id: episodeId,
@@ -361,11 +386,7 @@ export async function processAssetQueueForEpisode(projectId: number, episodeId: 
             entity_type: 'character',
             entity_id: char.id,
           });
-          const imageUrl = await generateWithRetry((task as any).id, async () => {
-            const url = await generateImage(prompt, { size: '1024x1024' });
-            const buffer = await downloadImage(url);
-            return saveFile(buffer, `ai-character-${char.id}-${Date.now()}.png`);
-          });
+          const imageUrl = await generateWithRetry((task as any).id, () => generateImage(prompt, { size: '1024x1024', ...opts }));
           GeneratedAssetModel.updateStatus((asset as any).id, 'completed', imageUrl);
           updateEpisodeProgress(episodeId);
         } catch (err: any) {
@@ -378,11 +399,14 @@ export async function processAssetQueueForEpisode(projectId: number, episodeId: 
   }
 
   for (const scene of scenes) {
+    if (db.prepare(
+      "SELECT id FROM generated_assets WHERE episode_id = ? AND asset_type = 'background' AND entity_type = 'scene' AND entity_id = ?"
+    ).get(episodeId, scene.id)) continue;
     tasks.push(
       (async () => {
         await sem.acquire();
         try {
-          const prompt = scene.image_prompt || buildBackgroundPrompt(scene, stylePreset);
+          const prompt = buildSceneSheetPrompt(scene, stylePreset);
           const asset = GeneratedAssetModel.createWithEpisode({
             project_id: projectId,
             episode_id: episodeId,
@@ -403,11 +427,7 @@ export async function processAssetQueueForEpisode(projectId: number, episodeId: 
             entity_type: 'scene',
             entity_id: scene.id,
           });
-          const imageUrl = await generateWithRetry((task as any).id, async () => {
-            const url = await generateImage(prompt, { size: '1792x1024' });
-            const buffer = await downloadImage(url);
-            return saveFile(buffer, `ai-bg-${scene.id}-${Date.now()}.png`);
-          });
+          const imageUrl = await generateWithRetry((task as any).id, () => generateImage(prompt, { size: '1792x1024', ...opts }));
           GeneratedAssetModel.updateStatus((asset as any).id, 'completed', imageUrl);
           updateEpisodeProgress(episodeId);
         } catch (err: any) {
@@ -420,23 +440,11 @@ export async function processAssetQueueForEpisode(projectId: number, episodeId: 
   }
 
   for (const prop of pendingProps) {
+    GeneratedAssetModel.updateStatus(prop.id, 'generating');
     tasks.push(
       (async () => {
         await sem.acquire();
         try {
-          const asset = GeneratedAssetModel.createWithEpisode({
-            project_id: projectId,
-            episode_id: episodeId,
-            asset_type: 'prop',
-            entity_type: 'project',
-            entity_id: projectId,
-            name: prop.name,
-            description: prop.description,
-            prompt: prop.prompt,
-            image_url: 'pending',
-            style_preset: stylePreset,
-            status: 'generating',
-          });
           const task = WorkflowTaskModel.createWithEpisode({
             project_id: projectId,
             episode_id: episodeId,
@@ -444,12 +452,8 @@ export async function processAssetQueueForEpisode(projectId: number, episodeId: 
             entity_type: 'project',
             entity_id: projectId,
           });
-          const imageUrl = await generateWithRetry((task as any).id, async () => {
-            const url = await generateImage(prop.prompt, { size: '1024x1024' });
-            const buffer = await downloadImage(url);
-            return saveFile(buffer, `ai-prop-${prop.id}-${Date.now()}.png`);
-          });
-          GeneratedAssetModel.updateStatus((asset as any).id, 'completed', imageUrl);
+          const imageUrl = await generateWithRetry((task as any).id, () => generateImage(prop.prompt, { size: '1024x1024', ...opts }));
+          GeneratedAssetModel.updateStatus(prop.id, 'completed', imageUrl);
           updateEpisodeProgress(episodeId);
         } catch (err: any) {
           logger.error(`Prop asset failed for episode ${episodeId}:`, err.message);

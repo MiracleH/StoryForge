@@ -123,6 +123,20 @@ export const setupDatabase = async (): Promise<void> => {
       )
     `);
 
+    // 创建道具表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS props (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        image_prompt TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      )
+    `);
+
     // 创建分镜表
     db.exec(`
       CREATE TABLE IF NOT EXISTS storyboards (
@@ -248,9 +262,133 @@ export const setupDatabase = async (): Promise<void> => {
       "ALTER TABLE chapters ADD COLUMN episode_id INTEGER",
       "ALTER TABLE workflow_tasks ADD COLUMN episode_id INTEGER",
       "ALTER TABLE generated_assets ADD COLUMN episode_id INTEGER",
+      // Seedance 2.0 format
+      "ALTER TABLE storyboards ADD COLUMN seedance_prompt TEXT",
+      "ALTER TABLE projects ADD COLUMN aspect_ratio TEXT DEFAULT '16:9'",
+      "ALTER TABLE episodes ADD COLUMN aspect_ratio TEXT DEFAULT '16:9'",
+      // Dual-version storyboards
+      "ALTER TABLE storyboards ADD COLUMN version TEXT DEFAULT 'standard'",
+      "ALTER TABLE storyboards ADD COLUMN sora_prompt TEXT",
+      "ALTER TABLE episodes ADD COLUMN script TEXT",
+      "ALTER TABLE videos ADD COLUMN episode_id INTEGER",
+      // Fix generated_assets CHECK constraint to include video_clip
+      `DROP TABLE IF EXISTS generated_assets_new;
+       BEGIN;
+       CREATE TABLE generated_assets_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        asset_type TEXT NOT NULL CHECK(asset_type IN ('character_design','character_expression','character_pose','background','prop','keyframe','video_clip')),
+        entity_type TEXT CHECK(entity_type IN ('character','scene','storyboard','project','prop')),
+        entity_id INTEGER,
+        prompt TEXT NOT NULL,
+        negative_prompt TEXT,
+        image_url TEXT NOT NULL,
+        thumbnail_url TEXT,
+        style_seed TEXT,
+        style_preset TEXT DEFAULT 'anime',
+        width INTEGER DEFAULT 1024,
+        height INTEGER DEFAULT 1024,
+        metadata TEXT,
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending','generating','completed','failed')),
+        name TEXT,
+        description TEXT,
+        episode_id INTEGER,
+        voice_prompt TEXT,
+        audio_url TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+       );
+       INSERT OR IGNORE INTO generated_assets_new SELECT * FROM generated_assets;
+       DROP TABLE generated_assets;
+       ALTER TABLE generated_assets_new RENAME TO generated_assets;
+       CREATE INDEX IF NOT EXISTS idx_generated_assets_project_type ON generated_assets(project_id, asset_type);
+       CREATE INDEX IF NOT EXISTS idx_generated_assets_episode ON generated_assets(episode_id);
+       COMMIT;`,
+      // Move props from generated_assets to props table
+      `INSERT OR IGNORE INTO props (project_id, name, description, image_prompt)
+       SELECT DISTINCT project_id, COALESCE(name, '未知道具'), COALESCE(description, ''), COALESCE(prompt, '')
+       FROM generated_assets WHERE asset_type = 'prop' AND project_id IS NOT NULL`,
+      `DELETE FROM generated_assets WHERE asset_type = 'prop'`,
+      // Add 'prop' to entity_type CHECK constraint
+      `DROP TABLE IF EXISTS generated_assets_v2;
+       BEGIN;
+       CREATE TABLE generated_assets_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        asset_type TEXT NOT NULL CHECK(asset_type IN ('character_design','character_expression','character_pose','background','prop','keyframe','video_clip')),
+        entity_type TEXT CHECK(entity_type IN ('character','scene','storyboard','project','prop')),
+        entity_id INTEGER,
+        prompt TEXT NOT NULL,
+        negative_prompt TEXT,
+        image_url TEXT NOT NULL,
+        thumbnail_url TEXT,
+        style_seed TEXT,
+        style_preset TEXT DEFAULT 'anime',
+        width INTEGER DEFAULT 1024,
+        height INTEGER DEFAULT 1024,
+        metadata TEXT,
+        status TEXT DEFAULT 'pending' CHECK(status IN ('pending','generating','completed','failed')),
+        name TEXT,
+        description TEXT,
+        episode_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+       );
+       INSERT OR IGNORE INTO generated_assets_v2 SELECT * FROM generated_assets;
+       DROP TABLE generated_assets;
+       ALTER TABLE generated_assets_v2 RENAME TO generated_assets;
+       CREATE INDEX IF NOT EXISTS idx_generated_assets_project_type ON generated_assets(project_id, asset_type);
+       CREATE INDEX IF NOT EXISTS idx_generated_assets_episode ON generated_assets(episode_id);
+       COMMIT;`,
     ];
     for (const sql of migrations) {
-      try { db.exec(sql); } catch { /* column already exists */ }
+      try { db.exec(sql); } catch (err: any) {
+        if (err?.code !== 'SQLITE_BUSY') {
+          logger.warn(`Migration skipped (safe): ${err?.message?.slice(0, 80)}`);
+        }
+      }
+    }
+
+    // Ensure generated_assets entity_type constraint includes 'prop'
+    try { db.exec('ROLLBACK'); } catch {}  // clear any doomed transaction from failed migrations
+    const gaSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='generated_assets'").get() as any;
+    if (gaSql && gaSql.sql && !gaSql.sql.includes("'prop'")) {
+      logger.info('Fixing generated_assets entity_type constraint to include prop');
+      db.exec(`
+        DROP TABLE IF EXISTS generated_assets_fix;
+        CREATE TABLE generated_assets_fix (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id INTEGER NOT NULL,
+          asset_type TEXT NOT NULL CHECK(asset_type IN ('character_design','character_expression','character_pose','background','prop','keyframe','video_clip')),
+          entity_type TEXT CHECK(entity_type IN ('character','scene','storyboard','project','prop')),
+          entity_id INTEGER,
+          prompt TEXT NOT NULL,
+          negative_prompt TEXT,
+          image_url TEXT NOT NULL,
+          thumbnail_url TEXT,
+          style_seed TEXT,
+          style_preset TEXT DEFAULT 'anime',
+          width INTEGER DEFAULT 1024,
+          height INTEGER DEFAULT 1024,
+          metadata TEXT,
+          status TEXT DEFAULT 'pending' CHECK(status IN ('pending','generating','completed','failed')),
+          name TEXT,
+          description TEXT,
+          episode_id INTEGER,
+          voice_prompt TEXT,
+          audio_url TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        INSERT OR IGNORE INTO generated_assets_fix SELECT * FROM generated_assets;
+        DROP TABLE generated_assets;
+        ALTER TABLE generated_assets_fix RENAME TO generated_assets;
+        CREATE INDEX IF NOT EXISTS idx_generated_assets_project_type ON generated_assets(project_id, asset_type);
+        CREATE INDEX IF NOT EXISTS idx_generated_assets_episode ON generated_assets(episode_id);
+      `);
     }
 
     // 创建角色表情库表
@@ -299,8 +437,8 @@ export const setupDatabase = async (): Promise<void> => {
       CREATE TABLE IF NOT EXISTS generated_assets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id INTEGER NOT NULL,
-        asset_type TEXT NOT NULL CHECK(asset_type IN ('character_design','character_expression','character_pose','background','prop','keyframe')),
-        entity_type TEXT CHECK(entity_type IN ('character','scene','storyboard','project')),
+        asset_type TEXT NOT NULL CHECK(asset_type IN ('character_design','character_expression','character_pose','background','prop','keyframe','video_clip')),
+        entity_type TEXT CHECK(entity_type IN ('character','scene','storyboard','project','prop')),
         entity_id INTEGER,
         prompt TEXT NOT NULL,
         negative_prompt TEXT,

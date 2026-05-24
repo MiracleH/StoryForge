@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDatabase } from '../database/setup';
 import { logger } from '../utils/logger';
+import { transitionWorkflow, transitionWorkflowEpisode } from './workflow';
 
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
 const outputDir = path.join(uploadDir, 'videos');
@@ -30,9 +31,11 @@ export function isFFmpegAvailable(): boolean {
 interface RenderTask {
   videoId: number;
   projectId: number;
+  episodeId?: number;
   resolution: string;
   bgmPath?: string;
   bgmVolume?: number;
+  onComplete?: () => void;
 }
 
 // 简单的内存任务队列
@@ -54,6 +57,7 @@ async function processQueue(): Promise<void> {
   } catch (error) {
     logger.error(`Video render failed for video ${task.videoId}:`, error);
     updateVideoStatus(task.videoId, 'failed');
+    task.onComplete?.();
   } finally {
     processing = false;
     if (queue.length > 0) {
@@ -63,11 +67,12 @@ async function processQueue(): Promise<void> {
 }
 
 async function renderVideo(task: RenderTask): Promise<void> {
-  const { videoId, projectId, resolution, bgmPath, bgmVolume } = task;
+  const { videoId, projectId, episodeId, resolution, bgmPath, bgmVolume, onComplete } = task;
 
   if (!ffmpegAvailable) {
     logger.warn(`Cannot render video ${videoId}: FFmpeg not installed`);
     updateVideoStatus(videoId, 'failed');
+    onComplete?.();
     return;
   }
 
@@ -79,10 +84,15 @@ async function renderVideo(task: RenderTask): Promise<void> {
   const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId) as any;
   if (!project) {
     updateVideoStatus(videoId, 'failed');
+    onComplete?.();
     return;
   }
 
-  const chapters = db.prepare('SELECT * FROM chapters WHERE project_id = ? ORDER BY order_index').all(projectId) as any[];
+  const chapters = db.prepare(
+    episodeId
+      ? 'SELECT * FROM chapters WHERE project_id = ? AND episode_id = ? ORDER BY order_index'
+      : 'SELECT * FROM chapters WHERE project_id = ? ORDER BY order_index'
+  ).all(...(episodeId ? [projectId, episodeId] : [projectId])) as any[];
   const characters = db.prepare('SELECT * FROM characters WHERE project_id = ?').all(projectId) as any[];
 
   // 收集所有分镜
@@ -99,8 +109,9 @@ async function renderVideo(task: RenderTask): Promise<void> {
   }
 
   if (allStoryboards.length === 0) {
-    logger.warn(`No storyboards found for project ${projectId}`);
+    logger.warn(`No storyboards found for project ${projectId}${episodeId ? ` episode ${episodeId}` : ''}`);
     updateVideoStatus(videoId, 'failed');
+    onComplete?.();
     return;
   }
 
@@ -270,6 +281,7 @@ async function renderVideo(task: RenderTask): Promise<void> {
   } catch {}
 
   logger.info(`Video ${videoId} rendered successfully: ${videoPath}`);
+  onComplete?.();
 }
 
 function updateVideoStatus(videoId: number, status: string): void {
@@ -340,4 +352,106 @@ async function generateThumbnail(videoPath: string, videoId: number): Promise<st
       .on('end', () => resolve(`/uploads/videos/thumb-${videoId}.jpg`))
       .on('error', reject);
   });
+}
+
+/**
+ * 合并所有视频片段为最终视频
+ */
+export async function mergeVideoClips(params: {
+  episodeId: number;
+  projectId: number;
+  videoId: number;
+  resolution?: string;
+  onComplete?: () => void;
+}): Promise<void> {
+  const { episodeId, projectId, videoId, resolution, onComplete } = params;
+
+  if (!ffmpegAvailable) {
+    logger.warn('Cannot merge video clips: FFmpeg not installed');
+    updateVideoStatus(videoId, 'failed');
+    onComplete?.();
+    return;
+  }
+
+  updateVideoStatus(videoId, 'processing');
+
+  const db = getDatabase();
+
+  // Get all completed video_clip assets in storyboard order
+  const clips = db.prepare(`
+    SELECT ga.*, sb.order_index as sb_order, sb.duration as sb_duration,
+           sb.transition_type, sb.transition_duration
+    FROM generated_assets ga
+    JOIN storyboards sb ON ga.entity_id = sb.id AND ga.entity_type = 'storyboard'
+    JOIN scenes s ON sb.scene_id = s.id
+    JOIN chapters c ON s.chapter_id = c.id
+    WHERE ga.episode_id = ? AND ga.asset_type = 'video_clip' AND ga.status = 'completed'
+      AND ga.image_url IS NOT NULL AND ga.image_url != 'pending'
+    ORDER BY c.order_index, s.order_index, sb.order_index
+  `).all(episodeId) as any[];
+
+  if (clips.length === 0) {
+    logger.warn(`No completed video clips found for episode ${episodeId}`);
+    updateVideoStatus(videoId, 'failed');
+    onComplete?.();
+    return;
+  }
+
+  // Write concat file list
+  const concatDir = path.join(outputDir, `concat-${videoId}`);
+  if (!fs.existsSync(concatDir)) fs.mkdirSync(concatDir, { recursive: true });
+
+  const concatFilePath = path.join(concatDir, 'concat.txt');
+  const concatLines = clips.map((c: any) => {
+    const resolved = c.image_url.startsWith('/uploads/')
+      ? path.join(uploadDir, path.basename(c.image_url))
+      : path.resolve(c.image_url);
+    return `file '${resolved.replace(/\\/g, '/')}'`;
+  });
+  fs.writeFileSync(concatFilePath, concatLines.join('\n'), 'utf-8');
+
+  const [width, height] = parseResolution(resolution || '1080p');
+  const outputPath = path.join(outputDir, `video-${videoId}.mp4`);
+
+  await new Promise<void>((resolve, reject) => {
+    ffmpeg()
+      .input(concatFilePath)
+      .inputOptions(['-f', 'concat', '-safe', '0'])
+      .outputOptions([
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-r', '24',
+        '-preset', 'fast',
+        '-y',
+      ])
+      .size(`${width}x${height}`)
+      .on('start', (cmd: string) => {
+        logger.info(`Video merge started for video ${videoId}`);
+      })
+      .on('progress', (progress: any) => {
+        if (progress.percent) {
+          logger.info(`Video ${videoId} merge progress: ${Math.round(progress.percent)}%`);
+        }
+      })
+      .on('end', () => resolve())
+      .on('error', reject)
+      .save(outputPath);
+  });
+
+  // Update video record
+  const videoPath = `/uploads/videos/video-${videoId}.mp4`;
+  const thumbnailPath = await generateThumbnail(outputPath, videoId);
+  const totalDuration = clips.reduce((sum: number, c: any) => sum + (c.sb_duration || 5), 0);
+
+  const db2 = getDatabase();
+  db2.prepare(`
+    UPDATE videos SET status = ?, file_path = ?, thumbnail = ?, duration = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run('completed', videoPath, thumbnailPath, totalDuration, videoId);
+
+  // Cleanup temp
+  try { fs.unlinkSync(concatFilePath); fs.rmdirSync(concatDir); } catch {}
+
+  logger.info(`Video ${videoId} merged successfully: ${videoPath}, ${clips.length} clips`);
+  onComplete?.();
 }

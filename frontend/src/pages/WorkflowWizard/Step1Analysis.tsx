@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Button, Alert, Spin, Typography, Card, Descriptions, Input, Space, Divider, List } from 'antd';
+import { Button, Alert, Spin, Typography, Card, Descriptions, Input, Space, Divider, List, Select } from 'antd';
 import { BulbOutlined, CheckCircleOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useWorkflowStore, useEpisodeWorkflowStore } from '../../stores';
+import { workflowAPI } from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -22,9 +23,8 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
   const { status, loading, streamContent } = store;
   const script = status?.script;
   const startAnalysis = isEpisodeMode ? episodeStore.startAnalysis : projectStore.startAnalysis;
-  const startAnalysisTypeChat = isEpisodeMode ? episodeStore.startAnalysisTypeChat : projectStore.startAnalysisTypeChat;
   const reviewScriptStream = isEpisodeMode ? episodeStore.reviewScriptStream : projectStore.reviewScriptStream;
-  const reviewTypeChat = isEpisodeMode ? episodeStore.reviewTypeChat : projectStore.reviewTypeChat;
+  const applyReview = isEpisodeMode ? episodeStore.applyReview : projectStore.applyReview;
   const reviseScriptStream = isEpisodeMode ? episodeStore.reviseScriptStream : projectStore.reviseScriptStream;
   const approveScript = isEpisodeMode ? episodeStore.approveScript : projectStore.approveScript;
 
@@ -32,6 +32,12 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
   const [reviseResult, setReviseResult] = useState<any>(null);
   const [reviewDone, setReviewDone] = useState(false);
   const streamEndRef = useRef<HTMLDivElement>(null);
+
+  // 风格和画幅设置
+  const [stylePresets, setStylePresets] = useState<Array<{ value: string; label: string }>>([]);
+  const [aspectRatios, setAspectRatios] = useState<Array<{ value: string; label: string }>>([]);
+  const [selectedStyle, setSelectedStyle] = useState<string>('anime');
+  const [selectedAspect, setSelectedAspect] = useState<string>('16:9');
 
   const state = status?.state || 'idle';
   const analysis = status?.analysis;
@@ -42,27 +48,19 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
     }
   }, [streamContent]);
 
+  // 加载风格和画幅选项
+  useEffect(() => {
+    workflowAPI.getStyleOptions().then((res: any) => {
+      const data = res.data || res;
+      setStylePresets(data.style_presets || []);
+      setAspectRatios(data.aspect_ratios || []);
+    }).catch(() => {});
+  }, []);
+
   const handleAnalyze = async () => {
     setReviewDone(false);
     setReviseResult(null);
-    try { await startAnalysis(entityId); } catch {}
-  };
-
-  const handleAnalyzeTypeChat = async () => {
-    setReviewDone(false);
-    setReviseResult(null);
-    try { await startAnalysisTypeChat(entityId); } catch {}
-  };
-
-  const handleReviewTypeChat = async () => {
-    setReviseResult(null);
-    try {
-      const result = await reviewTypeChat(entityId);
-      if (result) {
-        setReviseResult({ review: result });
-      }
-      setReviewDone(true);
-    } catch {}
+    try { await startAnalysis(entityId, { style_preset: selectedStyle, aspect_ratio: selectedAspect }); } catch {}
   };
 
   const handleReview = async () => {
@@ -71,6 +69,17 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
       const result = await reviewScriptStream(entityId);
       if (result?.review) {
         setReviseResult({ review: result.review });
+      }
+      setReviewDone(true);
+    } catch {}
+  };
+
+  const handleApplyReview = async () => {
+    setReviseResult(null);
+    try {
+      const result = await applyReview(entityId);
+      if (result) {
+        setReviseResult({ review: result.review, message: result.message });
       }
       setReviewDone(true);
     } catch {}
@@ -100,14 +109,38 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
             ? 'AI 将分析本集的小说文本片段，提取章节、场景、角色、对白，并自动生成素材提示词。'
             : 'AI 将分析小说文本，提取章节、场景、角色、对白，并自动生成素材提示词。'}
         </Paragraph>
-        <Space size="large">
-          <Button type="primary" size="large" loading={loading} onClick={handleAnalyze}>
-            流式分析
+
+        {/* 风格和画幅设置 */}
+        <Card size="small" style={{ maxWidth: 500, margin: '0 auto 24px', textAlign: 'left' }}>
+          <Space style={{ width: '100%' }} direction="vertical" size="middle">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Text strong style={{ minWidth: 70 }}>视觉风格</Text>
+              <Select
+                value={selectedStyle}
+                onChange={setSelectedStyle}
+                style={{ flex: 1 }}
+                options={stylePresets}
+                placeholder="选择视觉风格"
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Text strong style={{ minWidth: 70 }}>画幅比例</Text>
+              <Select
+                value={selectedAspect}
+                onChange={setSelectedAspect}
+                style={{ flex: 1 }}
+                options={aspectRatios}
+                placeholder="选择画幅比例"
+              />
+            </div>
+          </Space>
+        </Card>
+
+        <div style={{ textAlign: 'center', padding: '0 0 20px' }}>
+          <Button type="primary" size="large" icon={<BulbOutlined />} loading={loading} onClick={handleAnalyze}>
+            {isEpisodeMode ? '开始分析' : '开始分析'}
           </Button>
-          <Button size="large" loading={loading} onClick={handleAnalyzeTypeChat}>
-            TypeChat 分析
-          </Button>
-        </Space>
+        </div>
       </div>
     );
   }
@@ -138,7 +171,7 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
     );
   }
 
-  if (state === 'failed') {
+  if (state === 'failed' && !analysis) {
     return (
       <div style={{ textAlign: 'center', padding: 40 }}>
         <Alert message="分析失败" description={status?.error} type="error" showIcon style={{ marginBottom: 16 }} />
@@ -171,38 +204,29 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
         )}
 
         {/* 审核按钮 */}
-        {!reviewDone && !loading && !streamContent && (
+        {!reviewDone && !loading && (
           <div style={{ textAlign: 'center', padding: '20px 0', marginBottom: 16 }}>
-            <Space size="large">
-              <Button type="primary" size="large" icon={<BulbOutlined />} onClick={handleReview} loading={loading}>
-                流式审核
-              </Button>
-              <Button size="large" icon={<BulbOutlined />} onClick={handleReviewTypeChat} loading={loading}>
-                TypeChat 审核
-              </Button>
-            </Space>
+            <Button type="primary" size="large" icon={<BulbOutlined />} onClick={handleReview} loading={loading}>
+              AI 审核
+            </Button>
           </div>
         )}
 
-        {/* 流式输出区域 */}
-        {streamContent && (
-          <Card
-            size="small"
-            title="AI 审核输出"
-            style={{ marginBottom: 16, maxHeight: 400, overflow: 'auto' }}
-            styles={{ body: { fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 } }}
-          >
-            {streamContent}
-            {loading && <Spin size="small" style={{ marginLeft: 8 }} />}
-            <div ref={streamEndRef} />
-          </Card>
+        {/* 审核中 loading */}
+        {loading && !reviewDone && (
+          <div style={{ textAlign: 'center', padding: 30 }}>
+            <Spin size="large" />
+            <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>AI 正在审核剧本...</Text>
+          </div>
         )}
 
         {/* 审核结果 */}
         {reviseResult?.review && (
           <Card size="small" style={{ marginBottom: 16 }}>
             <Space direction="vertical" style={{ width: '100%' }}>
-              {reviseResult.review.approved ? (
+              {reviseResult.message ? (
+                <Alert message={reviseResult.message} type="success" showIcon />
+              ) : reviseResult.review.approved ? (
                 <Alert message="AI 审核通过" type="success" showIcon />
               ) : (
                 <Alert message="AI 审核发现问题" type="warning" showIcon />
@@ -230,20 +254,28 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
         <Divider />
 
         <Card title="修改方案" size="small" style={{ marginBottom: 16 }}>
-          <TextArea
-            rows={3}
-            placeholder="输入修改意见，例如：第三章的场景描述需要更详细，角色A的性格应该更果断..."
-            value={feedback}
-            onChange={e => setFeedback(e.target.value)}
-            style={{ marginBottom: 12 }}
-          />
-          <Space>
-            <Button icon={<EditOutlined />} loading={loading} disabled={!feedback.trim()} onClick={handleRevise}>
-              提交修改
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Button type="primary" icon={<BulbOutlined />} loading={loading} onClick={handleApplyReview} block>
+              一键 AI 修正（自动审核并应用修改）
             </Button>
-            <Button type="primary" icon={<CheckCircleOutlined />} disabled={loading} onClick={handleApprove}>
-              确认通过，开始生成素材
-            </Button>
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>或手动输入修改意见：</Text>
+              <TextArea
+                rows={3}
+                placeholder="输入修改意见，例如：第三章的场景描述需要更详细，角色A的性格应该更果断..."
+                value={feedback}
+                onChange={e => setFeedback(e.target.value)}
+                style={{ marginBottom: 12 }}
+              />
+              <Space>
+                <Button icon={<EditOutlined />} loading={loading} disabled={!feedback.trim()} onClick={handleRevise}>
+                  提交修改
+                </Button>
+                <Button type="primary" icon={<CheckCircleOutlined />} disabled={loading} onClick={handleApprove}>
+                  确认通过
+                </Button>
+              </Space>
+            </div>
           </Space>
         </Card>
       </div>

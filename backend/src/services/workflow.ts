@@ -19,19 +19,23 @@ export type WorkflowState =
   | 'storyboards_ready'
   | 'generating_keyframes'
   | 'completed'
+  | 'generating_video'
+  | 'video_ready'
   | 'failed';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   idle: ['analyzing'],
   analyzing: ['reviewing', 'failed'],
-  reviewing: ['generating_assets', 'analyzing', 'failed'],
+  reviewing: ['generating_assets', 'assets_ready', 'analyzing', 'failed'],
   generating_assets: ['assets_ready', 'failed'],
-  assets_ready: ['generating_storyboards', 'reviewing'],
+  assets_ready: ['generating_assets', 'generating_storyboards', 'reviewing'],
   generating_storyboards: ['storyboards_ready', 'failed'],
-  storyboards_ready: ['generating_keyframes'],
-  generating_keyframes: ['completed', 'failed'],
-  completed: ['idle'],
-  failed: ['idle', 'reviewing'],
+  storyboards_ready: ['generating_keyframes', 'generating_storyboards'],
+  generating_keyframes: ['completed', 'failed', 'generating_storyboards', 'generating_video'],
+  completed: ['idle', 'generating_storyboards', 'generating_video'],
+  generating_video: ['video_ready', 'failed', 'completed'],
+  video_ready: ['idle', 'generating_storyboards', 'generating_video'],
+  failed: ['idle', 'reviewing', 'generating_assets', 'generating_storyboards', 'generating_keyframes', 'generating_video'],
 };
 
 export function transitionWorkflow(projectId: number, from: WorkflowState, to: WorkflowState): boolean {

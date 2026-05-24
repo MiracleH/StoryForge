@@ -64,7 +64,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const res = await projectAPI.getById(id);
       set({ currentProject: res.data });
-    } catch {} finally {
+    } catch (err: any) {
+      console.error('获取项目失败:', err?.message || err);
+      set({ currentProject: null });
+    } finally {
       set({ loading: false });
     }
   },

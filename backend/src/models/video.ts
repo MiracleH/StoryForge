@@ -25,10 +25,10 @@ export const VideoModel = {
     return getDatabase().prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(projectId, userId);
   },
 
-  create(data: { project_id: number; title?: string; description?: string; resolution?: string; bgm_path?: string | null; bgm_volume?: number }) {
+  create(data: { project_id: number; episode_id?: number; title?: string; description?: string; resolution?: string; bgm_path?: string | null; bgm_volume?: number }) {
     const result = getDatabase().prepare(
-      'INSERT INTO videos (project_id, title, description, resolution, status, bgm_path, bgm_volume) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(data.project_id, data.title || null, data.description || null, data.resolution || '1080p', 'pending', data.bgm_path || null, data.bgm_volume ?? 0.5);
+      'INSERT INTO videos (project_id, episode_id, title, description, resolution, status, bgm_path, bgm_volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(data.project_id, data.episode_id || null, data.title || null, data.description || null, data.resolution || '1080p', 'pending', data.bgm_path || null, data.bgm_volume ?? 0.5);
     return getDatabase().prepare('SELECT * FROM videos WHERE id = ?').get(result.lastInsertRowid);
   },
 

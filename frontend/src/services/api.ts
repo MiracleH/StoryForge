@@ -7,7 +7,7 @@ export function streamRequest(
   url: string,
   body: Record<string, any>,
   callbacks: {
-    onChunk?: (text: string) => void;
+    onChunk?: (text: string, data?: any) => void;
     onStatus?: (data: any) => void;
     onDone?: (data: any) => void;
     onError?: (message: string) => void;
@@ -55,7 +55,7 @@ export function streamRequest(
             try {
               const parsed = JSON.parse(data);
               switch (eventType) {
-                case 'chunk': callbacks.onChunk?.(parsed.text); break;
+                case 'chunk': callbacks.onChunk?.(parsed.text, parsed); break;
                 case 'status': callbacks.onStatus?.(parsed); break;
                 case 'done': callbacks.onDone?.(parsed); break;
                 case 'error': callbacks.onError?.(parsed.message); break;
@@ -77,7 +77,7 @@ export function streamRequest(
 // 创建 axios 实例
 const api = axios.create({
   baseURL: '/api',
-  timeout: 300000,
+  timeout: 600000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -440,17 +440,23 @@ export const aiAPI = {
 
 // 工作流相关 API
 export const workflowAPI = {
+  /** 获取可用的风格和画幅选项 */
+  getStyleOptions: () => api.get('/workflow/style-options'),
   // Stage 1: Script Analysis (SSE 流式)
   analyze: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
     api.post(`/workflow/${projectId}/analyze`, settings || {}),
 
-  /** TypeChat 分析 — 自动验证 JSON */
-  analyzeTypeChat: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
-    api.post(`/workflow/${projectId}/analyze-typechat`, settings || {}),
-
-  /** TypeChat 审核 */
-  reviewTypeChat: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
-    api.post(`/workflow/${projectId}/review-typechat`, settings || {}),
+  /** 流式一键 AI 修正 (SSE) */
+  applyReviewStream: (
+    projectId: number,
+    settings: { api_key?: string; base_url?: string; model?: string } | undefined,
+    callbacks: {
+      onChunk?: (text: string) => void;
+      onStatus?: (data: any) => void;
+      onDone?: (data: any) => void;
+      onError?: (message: string) => void;
+    }
+  ) => streamRequest(`/api/workflow/${projectId}/apply-review`, settings || {}, callbacks),
 
   /** 流式分析剧本 (SSE) */
   analyzeStream: (
@@ -498,9 +504,22 @@ export const workflowAPI = {
   backToReview: (projectId: number) =>
     api.post(`/workflow/${projectId}/back-to-review`),
 
+  // Style Selection
+  suggestStyles: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/workflow/${projectId}/suggest-styles`, settings || {}),
+
+  setStyle: (projectId: number, style: string) =>
+    api.put(`/workflow/${projectId}/style`, { style }),
+
   // Stage 2: Asset Generation
-  generateAssets: (projectId: number) =>
-    api.post(`/workflow/${projectId}/generate-assets`),
+  /** 创建素材卡片（不生成图片） */
+  createAssets: (projectId: number) =>
+    api.post(`/workflow/${projectId}/create-assets`),
+  recreateAssets: (projectId: number, style?: string) =>
+    api.post(`/workflow/${projectId}/recreate-assets`, { style }),
+
+  generateAssets: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/workflow/${projectId}/generate-assets`, settings || {}),
 
   getAssets: (projectId: number, type?: string) =>
     api.get(`/workflow/${projectId}/assets`, { params: type ? { type } : {} }),
@@ -514,9 +533,15 @@ export const workflowAPI = {
   generateAssetAudio: (projectId: number, assetId: number) =>
     api.post(`/workflow/${projectId}/generate-asset-audio/${assetId}`),
 
+  generateSingleAsset: (projectId: number, assetId: number, aiSettings?: any) =>
+    api.post(`/workflow/${projectId}/assets/${assetId}/generate`, aiSettings || {}),
+
   // Stage 3: Storyboard Generation
   generateStoryboards: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
     api.post(`/workflow/${projectId}/generate-storyboards`, settings || {}),
+
+  getStoryboards: (projectId: number) =>
+    api.get(`/workflow/${projectId}/storyboards`),
 
   /** 流式生成分镜 (SSE) */
   generateStoryboardsStream: (
@@ -531,8 +556,14 @@ export const workflowAPI = {
   ) => streamRequest(`/api/workflow/${projectId}/generate-storyboards`, settings || {}, callbacks),
 
   // Stage 4: Keyframe Generation
-  generateKeyframes: (projectId: number) =>
-    api.post(`/workflow/${projectId}/generate-keyframes`),
+  generateKeyframes: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/workflow/${projectId}/generate-keyframes`, settings || {}),
+
+  // Stage 5: Video Generation
+  generateVideo: (projectId: number, data?: { resolution?: string; bgm_volume?: number; title?: string }) =>
+    api.post(`/workflow/${projectId}/generate-video`, data || {}),
+  getVideoStatus: (projectId: number) =>
+    api.get(`/workflow/${projectId}/video-status`),
 
   // Control
   getStatus: (projectId: number) =>
@@ -544,8 +575,8 @@ export const workflowAPI = {
   runAll: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
     api.post(`/workflow/${projectId}/run-all`, settings || {}),
 
-  retryFailed: (projectId: number) =>
-    api.post(`/workflow/${projectId}/retry-failed`),
+  retryFailed: (projectId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/workflow/${projectId}/retry-failed`, settings || {}),
 };
 
 // 剧集相关 API
@@ -590,13 +621,17 @@ export const episodeWorkflowAPI = {
   analyze: (episodeId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
     api.post(`/episodes/${episodeId}/workflow/analyze`, settings || {}),
 
-  /** TypeChat 分析 */
-  analyzeTypeChat: (episodeId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
-    api.post(`/episodes/${episodeId}/workflow/analyze-typechat`, settings || {}),
-
-  /** TypeChat 审核 */
-  reviewTypeChat: (episodeId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
-    api.post(`/episodes/${episodeId}/workflow/review-typechat`, settings || {}),
+  /** 流式一键 AI 修正 (SSE) */
+  applyReviewStream: (
+    episodeId: number,
+    settings: { api_key?: string; base_url?: string; model?: string } | undefined,
+    callbacks: {
+      onChunk?: (text: string) => void;
+      onStatus?: (data: any) => void;
+      onDone?: (data: any) => void;
+      onError?: (message: string) => void;
+    }
+  ) => streamRequest(`/api/episodes/${episodeId}/workflow/apply-review`, settings || {}, callbacks),
 
   /** 流式分析剧本 (SSE) */
   analyzeStream: (
@@ -640,31 +675,80 @@ export const episodeWorkflowAPI = {
   backToReview: (episodeId: number) =>
     api.post(`/episodes/${episodeId}/workflow/back-to-review`),
 
-  generateAssets: (episodeId: number) =>
-    api.post(`/episodes/${episodeId}/workflow/generate-assets`),
+  suggestStyles: (episodeId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/episodes/${episodeId}/workflow/suggest-styles`, settings || {}),
 
-  getAssets: (episodeId: number, type?: string) =>
-    api.get(`/episodes/${episodeId}/workflow/assets`, { params: type ? { type } : {} }),
+  setStyle: (episodeId: number, style: string) =>
+    api.put(`/episodes/${episodeId}/workflow/style`, { style }),
+
+  /** 创建素材卡片（不生成图片） */
+  createAssets: (episodeId: number) =>
+    api.post(`/episodes/${episodeId}/workflow/create-assets`),
+  recreateAssets: (episodeId: number, style?: string) =>
+    api.post(`/episodes/${episodeId}/workflow/recreate-assets`, { style }),
+
+  generateAssets: (episodeId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/episodes/${episodeId}/workflow/generate-assets`, settings || {}),
+
+  getAssets: (episodeId: number, type?: string, version?: string) =>
+    api.get(`/episodes/${episodeId}/workflow/assets`, { params: { ...(type ? { type } : {}), ...(version ? { version } : {}) } }),
+
+  generateSingleAsset: (episodeId: number, assetId: number, aiSettings?: any) =>
+    api.post(`/episodes/${episodeId}/workflow/assets/${assetId}/generate`, aiSettings || {}),
+
+  regenerateAsset: (episodeId: number, assetId: number) =>
+    api.post(`/episodes/${episodeId}/workflow/assets/${assetId}/regenerate`),
+
+  // Keyframe card operations
+  createKeyframeCards: (episodeId: number, style?: string) =>
+    api.post(`/episodes/${episodeId}/workflow/create-keyframe-cards`, { style }),
+
+  generateSingleKeyframe: (episodeId: number, assetId: number, aiSettings?: any) =>
+    api.post(`/episodes/${episodeId}/workflow/keyframes/${assetId}/generate`, aiSettings || {}),
+
+  regenerateKeyframe: (episodeId: number, assetId: number) =>
+    api.post(`/episodes/${episodeId}/workflow/keyframes/${assetId}/regenerate`),
+
+  getStoryboards: (episodeId: number, version?: string) =>
+    api.get(`/episodes/${episodeId}/workflow/storyboards`, { params: version ? { version } : {} }),
 
   generateStoryboardsStream: (
     episodeId: number,
-    settings: { api_key?: string; base_url?: string; model?: string } | undefined,
+    settings: { api_key?: string; base_url?: string; model?: string; version?: string } | undefined,
     callbacks: {
       onChunk?: (text: string) => void;
       onStatus?: (data: any) => void;
       onDone?: (data: any) => void;
       onError?: (message: string) => void;
     }
-  ) => streamRequest(`/api/episodes/${episodeId}/workflow/generate-storyboards`, settings || {}, callbacks),
+  ) => {
+    const version = settings?.version || 'both';
+    const { version: _, ...rest } = settings || {};
+    return streamRequest(`/api/episodes/${episodeId}/workflow/generate-storyboards?version=${version}`, rest, callbacks);
+  },
 
-  generateKeyframes: (episodeId: number) =>
-    api.post(`/episodes/${episodeId}/workflow/generate-keyframes`),
+  generateKeyframes: (episodeId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/episodes/${episodeId}/workflow/generate-keyframes`, settings || {}),
+
+  // Stage 5: Video Generation
+  createVideoClips: (episodeId: number) =>
+    api.post(`/episodes/${episodeId}/workflow/create-video-clips`),
+  generateSingleVideoClip: (episodeId: number, assetId: number, aiSettings?: any) =>
+    api.post(`/episodes/${episodeId}/workflow/video-clips/${assetId}/generate`, aiSettings || {}),
+  mergeVideoClips: (episodeId: number, data?: { resolution?: string; title?: string }) =>
+    api.post(`/episodes/${episodeId}/workflow/merge-video-clips`, data || {}),
+  getVideoClips: (episodeId: number, version?: string) =>
+    api.get(`/episodes/${episodeId}/workflow/assets`, { params: { type: 'video_clip', ...(version ? { version } : {}) } }),
+  getVideoStatus: (episodeId: number) =>
+    api.get(`/episodes/${episodeId}/workflow/video-status`),
+  getVideos: (episodeId: number) =>
+    api.get(`/episodes/${episodeId}/workflow/videos`),
 
   reset: (episodeId: number) =>
     api.post(`/episodes/${episodeId}/workflow/reset`),
 
-  retryFailed: (episodeId: number) =>
-    api.post(`/episodes/${episodeId}/workflow/retry-failed`),
+  retryFailed: (episodeId: number, settings?: { api_key?: string; base_url?: string; model?: string }) =>
+    api.post(`/episodes/${episodeId}/workflow/retry-failed`, settings || {}),
 };
 
 // 版本控制相关 API

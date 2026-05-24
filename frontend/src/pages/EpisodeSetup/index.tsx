@@ -13,6 +13,7 @@ interface EditableEpisode {
   target_minutes: number;
   start_char: number;
   end_char: number;
+  novel_text_segment?: string;
 }
 
 const EpisodeSetup: React.FC = () => {

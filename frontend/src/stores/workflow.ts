@@ -27,15 +27,20 @@ interface WorkflowState {
   _sseController: AbortController | null;
 
   fetchStatus: (projectId: number) => Promise<void>;
-  startAnalysis: (projectId: number) => Promise<any>;
-  startAnalysisTypeChat: (projectId: number) => Promise<any>;
+  startAnalysis: (projectId: number, extra?: { style_preset?: string; aspect_ratio?: string }) => Promise<any>;
   reviewScriptStream: (projectId: number) => Promise<any>;
-  reviewTypeChat: (projectId: number) => Promise<any>;
+  applyReview: (projectId: number) => Promise<any>;
   reviseScriptStream: (projectId: number, feedback: string) => Promise<any>;
   approveScript: (projectId: number) => Promise<void>;
   startAssetGeneration: (projectId: number) => Promise<void>;
+  createAssetCards: (projectId: number) => Promise<void>;
+  recreateAssetCards: (projectId: number, style?: string) => Promise<void>;
+  generateSingleAsset: (projectId: number, assetId: number) => Promise<void>;
   startStoryboardGenerationStream: (projectId: number) => Promise<void>;
   startKeyframeGeneration: (projectId: number) => Promise<void>;
+  generateVideo: (projectId: number, opts?: { resolution?: string; bgm_volume?: number; title?: string }) => Promise<void>;
+  videoStatus: any;
+  videos: any[];
   runAll: (projectId: number) => Promise<void>;
   resetWorkflow: (projectId: number) => Promise<void>;
   retryFailed: (projectId: number) => Promise<void>;
@@ -44,7 +49,7 @@ interface WorkflowState {
   clearStreamContent: () => void;
 }
 
-const ACTIVE_STATES = ['analyzing', 'reviewing', 'generating_assets', 'generating_storyboards', 'generating_keyframes'];
+const ACTIVE_STATES = ['analyzing', 'reviewing', 'generating_assets', 'generating_storyboards', 'generating_keyframes', 'generating_video'];
 
 function getTextAISettings(): { api_key?: string; base_url?: string; model?: string } {
   try {
@@ -61,12 +66,29 @@ function getTextAISettings(): { api_key?: string; base_url?: string; model?: str
   return {};
 }
 
+function getImageAISettings(): { api_key?: string; base_url?: string; model?: string } {
+  try {
+    const saved = localStorage.getItem('settings');
+    if (saved) {
+      const s = JSON.parse(saved);
+      return {
+        api_key: s.ai_image_api_key || s.ai_api_key,
+        base_url: s.ai_image_base_url || s.ai_base_url,
+        model: s.ai_image_model,
+      };
+    }
+  } catch {}
+  return {};
+}
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   projectId: null,
   status: null,
   loading: false,
   error: null,
   streamContent: '',
+  videoStatus: null,
+  videos: [],
   _pollTimer: null,
   _sseController: null,
 
@@ -83,14 +105,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  startAnalysis: async (projectId) => {
+  startAnalysis: async (projectId, extra) => {
     set((s) => ({ loading: true, error: null, streamContent: '', status: { ...s.status, state: 'analyzing' } as any }));
     get()._sseController?.abort();
 
     return new Promise((resolve, reject) => {
       const controller = workflowAPI.analyzeStream(
         projectId,
-        getTextAISettings(),
+        { ...getTextAISettings(), ...extra },
         {
           onChunk: (text) => {
             set((s) => ({ streamContent: s.streamContent + text }));
@@ -113,29 +135,34 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
 
-  startAnalysisTypeChat: async (projectId) => {
-    set({ loading: true, error: null });
-    try {
-      const res = await workflowAPI.analyzeTypeChat(projectId, getTextAISettings());
-      set({ loading: false });
-      get().fetchStatus(projectId);
-      return res.data;
-    } catch (err: any) {
-      set({ loading: false, error: err.message || 'TypeChat 分析失败' });
-      throw err;
-    }
-  },
+  applyReview: async (projectId) => {
+    set({ loading: true, error: null, streamContent: '' });
+    get()._sseController?.abort();
 
-  reviewTypeChat: async (projectId) => {
-    set({ loading: true, error: null });
-    try {
-      const res = await workflowAPI.reviewTypeChat(projectId, getTextAISettings());
-      set({ loading: false });
-      return res.data;
-    } catch (err: any) {
-      set({ loading: false, error: err.message || 'TypeChat 审核失败' });
-      throw err;
-    }
+    return new Promise((resolve, reject) => {
+      const controller = workflowAPI.applyReviewStream(
+        projectId,
+        getTextAISettings(),
+        {
+          onChunk: (text) => {
+            set((s) => ({ streamContent: s.streamContent + text }));
+          },
+          onStatus: (data) => {
+            set({ streamContent: get().streamContent + `\n\n[${data.message}]\n\n` });
+          },
+          onDone: (data) => {
+            set({ loading: false, _sseController: null });
+            get().fetchStatus(projectId);
+            resolve(data);
+          },
+          onError: (message) => {
+            set({ loading: false, error: message, _sseController: null });
+            reject(new Error(message));
+          },
+        }
+      );
+      set({ _sseController: controller });
+    });
   },
 
   reviewScriptStream: async (projectId) => {
@@ -215,12 +242,42 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   startAssetGeneration: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      await workflowAPI.generateAssets(projectId);
+      await workflowAPI.generateAssets(projectId, getImageAISettings());
       set({ loading: false });
       get().pollStatus(projectId);
     } catch (err: any) {
       set({ loading: false, error: err.message || '素材生成启动失败' });
       throw err;
+    }
+  },
+
+  generateSingleAsset: async (projectId, assetId) => {
+    try {
+      await workflowAPI.generateSingleAsset(projectId, assetId, getImageAISettings());
+      get().pollStatus(projectId);
+    } catch (err: any) {
+      throw err;
+    }
+  },
+
+  createAssetCards: async (projectId) => {
+    set({ loading: true, error: null });
+    try {
+      await workflowAPI.createAssets(projectId);
+      set({ loading: false });
+      get().fetchStatus(projectId);
+    } catch (err: any) {
+      set({ loading: false, error: err.message || '创建素材卡片失败' });
+    }
+  },
+  recreateAssetCards: async (projectId, style) => {
+    set({ loading: true, error: null });
+    try {
+      await workflowAPI.recreateAssets(projectId, style);
+      set({ loading: false });
+      get().fetchStatus(projectId);
+    } catch (err: any) {
+      set({ loading: false, error: err.message || '重新创建素材卡片失败' });
     }
   },
 
@@ -257,11 +314,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   startKeyframeGeneration: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      await workflowAPI.generateKeyframes(projectId);
+      await workflowAPI.generateKeyframes(projectId, getImageAISettings());
       set({ loading: false });
       get().pollStatus(projectId);
     } catch (err: any) {
       set({ loading: false, error: err.message || '关键帧生成启动失败' });
+      throw err;
+    }
+  },
+
+  generateVideo: async (projectId, opts) => {
+    set({ loading: true, error: null });
+    try {
+      await workflowAPI.generateVideo(projectId, opts);
+      set({ loading: false });
+      get().fetchStatus(projectId);
+    } catch (err: any) {
+      set({ loading: false, error: err.message || '视频生成启动失败' });
       throw err;
     }
   },
@@ -293,7 +362,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   retryFailed: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      await workflowAPI.retryFailed(projectId);
+      await workflowAPI.retryFailed(projectId, getImageAISettings());
       set({ loading: false });
       get().pollStatus(projectId);
     } catch (err: any) {

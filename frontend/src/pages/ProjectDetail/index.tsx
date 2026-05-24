@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Card, Descriptions, Button, Space, Typography, message, Tabs, Spin, Table, Tag, Popconfirm, Empty, List } from 'antd';
-import { EditOutlined, ArrowLeftOutlined, PlusOutlined, FileTextOutlined, DeleteOutlined, PlayCircleOutlined, DownloadOutlined, HistoryOutlined, RollbackOutlined, RocketOutlined } from '@ant-design/icons';
+import { EditOutlined, ArrowLeftOutlined, PlusOutlined, FileTextOutlined, DeleteOutlined, PlayCircleOutlined, DownloadOutlined, HistoryOutlined, RollbackOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useProjectStore, useCharacterStore, useVideoStore, useStoryboardStore, useVersionStore, useEpisodeStore } from '../../stores';
 import { useExport } from '../../hooks';
@@ -22,6 +22,14 @@ const ProjectDetail: React.FC = () => {
   const { exportBlob } = useExport();
 
   useEffect(() => { fetchProject(projectId); }, [projectId]);
+
+  // 切换项目时重新拉取已缓存的数据
+  useEffect(() => {
+    fetchEpisodes(projectId);
+    fetchCharacters(projectId);
+    fetchChapters(projectId);
+    fetchVideos(projectId);
+  }, [projectId]);
 
   const getStatusText = (status: string) => {
     const statusMap: Record<string, string> = { draft: '草稿', in_progress: '进行中', completed: '已完成', archived: '已归档' };
@@ -280,6 +288,20 @@ const ProjectDetail: React.FC = () => {
     },
   ];
 
+  if (!project) {
+    return (
+      <div style={{ textAlign: 'center', padding: 60 }}>
+        <Spin size="large" />
+        <div style={{ marginTop: 16 }}>
+          <Text type="secondary">{loading ? '加载中...' : '项目不存在或已被删除'}</Text>
+        </div>
+        {!loading && (
+          <Button style={{ marginTop: 16 }} icon={<ArrowLeftOutlined />} onClick={() => navigate('/projects')}>返回项目列表</Button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -289,7 +311,6 @@ const ProjectDetail: React.FC = () => {
         </Space>
         <Space>
           <Button icon={<DownloadOutlined />} onClick={handleExport}>导出</Button>
-          <Button icon={<RocketOutlined />} onClick={() => navigate(`/projects/${id}/workflow`)}>AI 工作流</Button>
           <Button type="primary" icon={<EditOutlined />} onClick={() => navigate(`/projects/${id}/edit`)}>编辑项目</Button>
         </Space>
       </div>

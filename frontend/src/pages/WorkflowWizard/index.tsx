@@ -7,6 +7,7 @@ import Step1Analysis from './Step1Analysis';
 import Step2Assets from './Step2Assets';
 import Step3Storyboards from './Step3Storyboards';
 import Step4Keyframes from './Step4Keyframes';
+import Step5Video from './Step5Video';
 
 const { Title } = Typography;
 
@@ -19,7 +20,9 @@ const STATE_TO_STEP: Record<string, number> = {
   generating_storyboards: 2,
   storyboards_ready: 2,
   generating_keyframes: 3,
-  completed: 4,
+  completed: 3,
+  generating_video: 4,
+  video_ready: 5,
   failed: -1,
 };
 
@@ -32,7 +35,9 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   generating_storyboards: { label: '生成分镜中...', color: 'processing' },
   storyboards_ready: { label: '分镜就绪', color: 'success' },
   generating_keyframes: { label: '生成关键帧中...', color: 'processing' },
-  completed: { label: '已完成', color: 'success' },
+  completed: { label: '关键帧就绪', color: 'success' },
+  generating_video: { label: '生成视频中...', color: 'processing' },
+  video_ready: { label: '视频就绪', color: 'success' },
   failed: { label: '失败', color: 'error' },
 };
 
@@ -68,16 +73,16 @@ const WorkflowWizard: React.FC = () => {
   }, [projectId, episodeId]);
 
   const state = status?.state || 'idle';
-  const currentStep = STATE_TO_STEP[state] ?? 0;
+  const currentStep = state === 'failed' ? 0 : (STATE_TO_STEP[state] ?? 0);
   const stateLabel = STATE_LABELS[state] || STATE_LABELS.idle;
 
   // 当前查看的步骤：null 表示查看当前步骤
-  const viewingStep = selectedStep ?? currentStep;
+  const viewingStep = selectedStep !== null ? selectedStep : currentStep;
 
   // 点击步骤条
   const handleStepClick = (step: number) => {
-    // 只允许点击已完成或当前步骤
-    if (step <= currentStep) {
+    // Allow clicking failed or current/past steps
+    if (state === 'failed' || step <= currentStep) {
       setSelectedStep(step);
     }
   };
@@ -89,10 +94,10 @@ const WorkflowWizard: React.FC = () => {
   const isViewingPast = selectedStep !== null && selectedStep < currentStep;
 
   const showStep1 = viewingStep === 0;
-  const showStep2 = viewingStep === 1;
-  const showStep3 = viewingStep === 2;
-  const showStep4 = viewingStep === 3;
-  const showCompleted = state === 'completed' && !isViewingPast;
+  const showStep2 = viewingStep === 1 && (isViewingPast || state === 'failed' || !['idle', 'analyzing'].includes(state));
+  const showStep3 = viewingStep === 2 && (isViewingPast || state === 'failed' || ['generating_storyboards', 'storyboards_ready', 'generating_keyframes', 'completed', 'generating_video', 'video_ready'].includes(state));
+  const showStep4 = viewingStep === 3 && (isViewingPast || !['generating_video', 'video_ready'].includes(state));
+  const showStep5 = viewingStep === 4 || viewingStep === 5 || (viewingStep === 3 && ['generating_keyframes', 'completed', 'generating_video', 'video_ready'].includes(state) && !isViewingPast);
 
   const backPath = `/projects/${id}`;
   const entityId = isEpisodeMode ? episodeId! : projectId;
@@ -108,12 +113,12 @@ const WorkflowWizard: React.FC = () => {
           <Tag color={stateLabel.color}>{stateLabel.label}</Tag>
         </Space>
         <Space>
-          {status?.tasks && status.tasks.failed > 0 && (
-            <Button onClick={() => retryFailed(entityId)}>
-              重试失败任务 ({status.tasks.failed})
+          {((status?.tasks && status.tasks.failed > 0) || state === 'failed') && (
+            <Button type={state === 'failed' ? 'primary' : 'default'} icon={<ReloadOutlined />} onClick={() => { retryFailed(entityId); setSelectedStep(null); }}>
+              {state === 'failed' ? '重试失败步骤' : `重试失败任务 (${status?.tasks?.failed || 0})`}
             </Button>
           )}
-          {['completed', 'failed', 'reviewing', 'assets_ready', 'storyboards_ready'].includes(state) && (
+          {['completed', 'failed', 'reviewing', 'assets_ready', 'storyboards_ready', 'video_ready'].includes(state) && (
             <Button icon={<ReloadOutlined />} onClick={() => resetWorkflow(entityId)}>重置</Button>
           )}
           {!isEpisodeMode && (state === 'idle' || state === 'failed') && (
@@ -127,7 +132,7 @@ const WorkflowWizard: React.FC = () => {
       {error && <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} />}
       {status?.error && <Alert message={status.error} type="error" showIcon style={{ marginBottom: 16 }} />}
 
-      {status?.tasks && ['generating_assets', 'generating_storyboards', 'generating_keyframes'].includes(state) && (
+      {status?.tasks && ['generating_assets', 'generating_storyboards', 'generating_keyframes', 'generating_video'].includes(state) && (
         <Card size="small" style={{ marginBottom: 16 }}>
           <Space size="large">
             <span>待处理: <strong>{status.tasks.pending}</strong></span>
@@ -146,6 +151,7 @@ const WorkflowWizard: React.FC = () => {
           { title: '素材生成', description: '角色/场景/道具素材卡片' },
           { title: '分镜生成', description: 'AI 生成分镜 JSON' },
           { title: '关键帧生成', description: '生成分镜图' },
+          { title: '视频生成', description: '合成最终视频' },
         ]}
         onChange={handleStepClick}
         style={{ marginBottom: 32 }}
@@ -164,15 +170,7 @@ const WorkflowWizard: React.FC = () => {
         {showStep2 && <Step2Assets projectId={projectId} episodeId={episodeId} />}
         {showStep3 && <Step3Storyboards projectId={projectId} episodeId={episodeId} />}
         {showStep4 && <Step4Keyframes projectId={projectId} episodeId={episodeId} />}
-        {showCompleted && (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Title level={3}>工作流完成!</Title>
-            <p>所有关键帧已生成，可以进入分镜编辑器进行手动调整。</p>
-            <Button type="primary" size="large" onClick={() => navigate('/storyboard-editor')}>
-              打开分镜编辑器
-            </Button>
-          </div>
-        )}
+        {showStep5 && <Step5Video projectId={projectId} episodeId={episodeId} />}
       </Card>
     </div>
   );

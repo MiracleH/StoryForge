@@ -1,8 +1,36 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, Button, Typography } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/Layout';
+
+const { Text } = Typography;
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ textAlign: 'center', padding: 60 }}>
+          <Text type="danger" strong style={{ fontSize: 18 }}>页面发生错误</Text>
+          <div style={{ marginTop: 16, marginBottom: 16 }}>
+            <Text type="secondary">{this.state.error?.message}</Text>
+          </div>
+          <Button onClick={() => { this.setState({ hasError: false }); window.location.reload(); }}>
+            刷新页面
+          </Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // 页面组件
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
@@ -39,6 +67,7 @@ const App: React.FC = () => {
   return (
     <ConfigProvider locale={zhCN}>
       <Router>
+        <ErrorBoundary>
         <Routes>
           {/* 公开路由 */}
           <Route path="/login" element={
@@ -246,6 +275,7 @@ const App: React.FC = () => {
           {/* 404页面 */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </ErrorBoundary>
       </Router>
     </ConfigProvider>
   );

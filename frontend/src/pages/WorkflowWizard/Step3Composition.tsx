@@ -12,13 +12,13 @@ interface Props {
 
 const Step3Composition: React.FC<Props> = ({ projectId }) => {
   const navigate = useNavigate();
-  const { status, loading, startComposition } = useWorkflowStore();
+  const { status, loading, startKeyframeGeneration } = useWorkflowStore();
   const state = status?.state || 'idle';
   const isComposing = state === 'composing';
 
   const handleCompose = async () => {
     try {
-      await startComposition(projectId);
+      await startKeyframeGeneration(projectId);
     } catch {}
   };
 

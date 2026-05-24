@@ -108,7 +108,8 @@ export const useEpisodeStore = create<EpisodeState>((set, get) => ({
   updateEpisode: async (episodeId, data) => {
     set({ loading: true, error: null });
     try {
-      await episodeAPI.update(episodeId, data);
+      const { id, project_id, created_at, updated_at, workflow_state, workflow_error, workflow_progress, ...rest } = data as any;
+      await episodeAPI.update(episodeId, rest);
       const ep = get().episodes.find(e => e.id === episodeId);
       if (ep) {
         await get().fetchEpisodes(ep.project_id);

@@ -6,7 +6,7 @@ import { SceneModel } from '../models/scene';
 import { StoryboardModel } from '../models/storyboard';
 import { CharacterAssetModel } from '../models/character-asset';
 import { DialogueModel } from '../models/dialogue';
-import { isAIConfigured, isImageConfigured, isTTSConfigured, aiConfig, generateImage, generateSpeech, downloadImage, saveFile, testTextConnection } from '../services/ai';
+import { isAIConfigured, isImageConfigured, isTTSConfigured, aiConfig, generateImage, generateSpeech, saveFile, testTextConnection } from '../services/ai';
 import { logger } from '../utils/logger';
 
 export const AIController = {
@@ -65,10 +65,7 @@ export const AIController = {
     const prompt = buildCharacterPrompt(character);
     logger.info(`Generating character image for "${character.name}": ${prompt}`);
 
-    const imageUrl = await generateImage(prompt, { size: '1024x1024' });
-    const buffer = await downloadImage(imageUrl);
-    const filename = `ai-character-${character_id}-${Date.now()}.png`;
-    const filePath = saveFile(buffer, filename);
+    const filePath = await generateImage(prompt, { size: '1024x1024' });
 
     CharacterModel.update(character_id, { avatar: filePath });
     res.json({ success: true, data: { avatar: filePath } });
@@ -85,10 +82,7 @@ export const AIController = {
     const prompt = buildScenePrompt(scene);
     logger.info(`Generating scene image for "${scene.title}": ${prompt}`);
 
-    const imageUrl = await generateImage(prompt, { size: '1792x1024' });
-    const buffer = await downloadImage(imageUrl);
-    const filename = `ai-scene-${scene_id}-${Date.now()}.png`;
-    const filePath = saveFile(buffer, filename);
+    const filePath = await generateImage(prompt, { size: '1792x1024' });
 
     SceneModel.update(scene_id, { background_image: filePath });
     res.json({ success: true, data: { background_image: filePath } });
@@ -105,10 +99,7 @@ export const AIController = {
     const prompt = buildStoryboardPrompt(sb);
     logger.info(`Generating storyboard image for "${sb.title}": ${prompt}`);
 
-    const imageUrl = await generateImage(prompt, { size: '1792x1024' });
-    const buffer = await downloadImage(imageUrl);
-    const filename = `ai-storyboard-${storyboard_id}-${Date.now()}.png`;
-    const filePath = saveFile(buffer, filename);
+    const filePath = await generateImage(prompt, { size: '1792x1024' });
 
     StoryboardModel.update(storyboard_id, { image_url: filePath });
     res.json({ success: true, data: { image_url: filePath } });
@@ -129,10 +120,7 @@ export const AIController = {
     const prompt = `${character.style || 'anime'} style character portrait, name: ${character.name}, ${expression.emotion || ''} expression, ${expression.description || expression.name}, high quality, detailed face`;
     logger.info(`Generating expression image: ${prompt}`);
 
-    const imageUrl = await generateImage(prompt, { size: '1024x1024' });
-    const buffer = await downloadImage(imageUrl);
-    const filename = `ai-expression-${expression_id}-${Date.now()}.png`;
-    const filePath = saveFile(buffer, filename);
+    const filePath = await generateImage(prompt, { size: '1024x1024' });
 
     const { getDatabase } = require('../database/setup');
     getDatabase().prepare('UPDATE character_expressions SET image_url = ? WHERE id = ?').run(filePath, expression_id);

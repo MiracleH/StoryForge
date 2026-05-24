@@ -3,15 +3,15 @@
  * Stage 4: 基于分镜 JSON + 素材库生成关键帧图片
  */
 
-import { generateImage, downloadImage, saveFile, isImageConfigured } from './ai';
+import { generateImage, isImageConfigured } from './ai';
 import { buildKeyframePrompt } from './style-consistency';
 import { GeneratedAssetModel } from '../models/generated-asset';
 import { WorkflowTaskModel } from '../models/workflow-task';
 import { getDatabase } from '../database/setup';
 import { logger } from '../utils/logger';
 
-export async function generateKeyframes(projectId: number): Promise<void> {
-  if (!isImageConfigured()) {
+export async function generateKeyframes(projectId: number, imageOpts?: { api_key?: string; base_url?: string; model?: string }): Promise<void> {
+  if (!isImageConfigured() && !imageOpts?.api_key) {
     throw new Error('AI 图片生成未配置');
   }
 
@@ -77,9 +77,7 @@ export async function generateKeyframes(projectId: number): Promise<void> {
     try {
       WorkflowTaskModel.updateStatus((task as any).id, 'running');
 
-      const imageUrl = await generateImage(prompt, { size: '1792x1024' });
-      const buffer = await downloadImage(imageUrl);
-      const filePath = saveFile(buffer, `ai-keyframe-${sb.id}-${Date.now()}.png`);
+      const filePath = await generateImage(prompt, { size: '1792x1024', ...imageOpts });
 
       GeneratedAssetModel.updateStatus((asset as any).id, 'completed', filePath);
       WorkflowTaskModel.updateStatus((task as any).id, 'completed');
@@ -98,8 +96,8 @@ export async function generateKeyframes(projectId: number): Promise<void> {
 /**
  * Episode-scoped keyframe generation
  */
-export async function generateKeyframesForEpisode(episodeId: number): Promise<void> {
-  if (!isImageConfigured()) {
+export async function generateKeyframesForEpisode(episodeId: number, imageOpts?: { api_key?: string; base_url?: string; model?: string }): Promise<void> {
+  if (!isImageConfigured() && !imageOpts?.api_key) {
     throw new Error('AI 图片生成未配置');
   }
 
@@ -170,9 +168,7 @@ export async function generateKeyframesForEpisode(episodeId: number): Promise<vo
     try {
       WorkflowTaskModel.updateStatus((task as any).id, 'running');
 
-      const imageUrl = await generateImage(prompt, { size: '1792x1024' });
-      const buffer = await downloadImage(imageUrl);
-      const filePath = saveFile(buffer, `ai-keyframe-${sb.id}-${Date.now()}.png`);
+      const filePath = await generateImage(prompt, { size: '1792x1024', ...imageOpts });
 
       GeneratedAssetModel.updateStatus((asset as any).id, 'completed', filePath);
       WorkflowTaskModel.updateStatus((task as any).id, 'completed');
