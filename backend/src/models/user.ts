@@ -33,9 +33,9 @@ export const UserModel = {
   updateProfile(id: number, data: { username?: string; email?: string; avatar?: string }) {
     const updates: string[] = [];
     const values: any[] = [];
-    if (data.username) { updates.push('username = ?'); values.push(data.username); }
-    if (data.email) { updates.push('email = ?'); values.push(data.email); }
-    if (data.avatar) { updates.push('avatar = ?'); values.push(data.avatar); }
+    if (data.username !== undefined && data.username !== null) { updates.push('username = ?'); values.push(data.username); }
+    if (data.email !== undefined && data.email !== null) { updates.push('email = ?'); values.push(data.email); }
+    if (data.avatar !== undefined) { updates.push('avatar = ?'); values.push(data.avatar); }
     if (updates.length === 0) return;
     updates.push('updated_at = CURRENT_TIMESTAMP');
     values.push(id);

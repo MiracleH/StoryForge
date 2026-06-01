@@ -146,7 +146,10 @@ export function createKeyframeCardsForEpisode(
       metadata: JSON.stringify({ reference_asset_ids: referenceAssetIds }),
     });
 
-    byVersion[sb.version as keyof typeof byVersion] = (byVersion[sb.version as keyof typeof byVersion] || 0) + 1;
+    const version = (sb.version || 'standard') as keyof typeof byVersion;
+    if (version in byVersion) {
+      byVersion[version]++;
+    }
   }
 
   // Also update the episode style_preset if changed

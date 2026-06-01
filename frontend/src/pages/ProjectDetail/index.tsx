@@ -45,7 +45,7 @@ const ProjectDetail: React.FC = () => {
       assets_ready: { color: 'success', text: '素材就绪' },
       generating_storyboards: { color: 'processing', text: '生成分镜' },
       storyboards_ready: { color: 'success', text: '分镜就绪' },
-      generating_keyframes: { color: 'processing', text: '生成关键帧' },
+      generating_keyframes: { color: 'processing', text: '生成首尾帧' },
       completed: { color: 'success', text: '已完成' },
       failed: { color: 'error', text: '失败' },
     };

@@ -27,13 +27,13 @@ const Step3Composition: React.FC<Props> = ({ projectId }) => {
 
   return (
     <div>
-      <Title level={4}>Stage 3: 关键帧合成</Title>
+      <Title level={4}>Stage 3: 首尾帧合成</Title>
 
       {state === 'assets_ready' && (
         <div style={{ textAlign: 'center', padding: 40 }}>
           <VideoCameraOutlined style={{ fontSize: 48, color: '#fa541c', marginBottom: 16 }} />
           <Paragraph type="secondary" style={{ maxWidth: 500, margin: '0 auto 24px' }}>
-            将角色素材和场景背景组合，为每个分镜生成关键帧图片。
+            将角色素材和场景背景组合，为每个分镜生成首尾帧图片。
             同时为所有对白生成语音音频。
           </Paragraph>
           <Button
@@ -43,7 +43,7 @@ const Step3Composition: React.FC<Props> = ({ projectId }) => {
             loading={loading}
             onClick={handleCompose}
           >
-            开始合成关键帧
+            开始合成首尾帧
           </Button>
         </div>
       )}
@@ -51,8 +51,8 @@ const Step3Composition: React.FC<Props> = ({ projectId }) => {
       {isComposing && (
         <div style={{ textAlign: 'center', padding: 40 }}>
           <Spin size="large" />
-          <Title level={4} style={{ marginTop: 16 }}>关键帧合成中...</Title>
-          <Paragraph type="secondary">正在组合素材生成分镜图和对白音频</Paragraph>
+          <Title level={4} style={{ marginTop: 16 }}>首尾帧合成中...</Title>
+          <Paragraph type="secondary">正在组合素材生成首尾帧图片和对白音频</Paragraph>
           <Progress
             percent={Math.round(progress)}
             status="active"
@@ -65,7 +65,7 @@ const Step3Composition: React.FC<Props> = ({ projectId }) => {
         <div style={{ textAlign: 'center', padding: 40 }}>
           <Title level={3} style={{ color: '#52c41a' }}>合成完成!</Title>
           <Paragraph>
-            所有关键帧和对白音频已生成完毕。
+            所有首尾帧图片和对白音频已生成完毕。
             您可以在分镜编辑器中查看和调整结果。
           </Paragraph>
           <Button type="primary" size="large" onClick={() => navigate('/storyboard-editor')}>

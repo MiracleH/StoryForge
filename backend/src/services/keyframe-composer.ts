@@ -77,12 +77,23 @@ export async function generateKeyframes(projectId: number, imageOpts?: { api_key
     try {
       WorkflowTaskModel.updateStatus((task as any).id, 'running');
 
+      // First frame
       const filePath = await generateImage(prompt, { size: '1792x1024', ...imageOpts });
 
       GeneratedAssetModel.updateStatus((asset as any).id, 'completed', filePath);
       WorkflowTaskModel.updateStatus((task as any).id, 'completed');
 
       db.prepare('UPDATE storyboards SET image_url = ? WHERE id = ?').run(filePath, sb.id);
+
+      // Last frame
+      try {
+        const lastFramePrompt = '[Last Frame / Ending] ' + prompt;
+        const lastPath = await generateImage(lastFramePrompt, { size: '1792x1024', ...imageOpts });
+        db.prepare('UPDATE generated_assets SET thumbnail_url = ? WHERE id = ?').run(lastPath, (asset as any).id);
+        db.prepare('UPDATE storyboards SET last_frame_image = ? WHERE id = ?').run(lastPath, sb.id);
+      } catch (lastErr: any) {
+        logger.error(`Last frame generation failed for storyboard ${sb.id}:`, lastErr.message);
+      }
 
       logger.info(`Keyframe generated for storyboard ${sb.id}`);
     } catch (err: any) {
@@ -168,12 +179,23 @@ export async function generateKeyframesForEpisode(episodeId: number, imageOpts?:
     try {
       WorkflowTaskModel.updateStatus((task as any).id, 'running');
 
+      // First frame
       const filePath = await generateImage(prompt, { size: '1792x1024', ...imageOpts });
 
       GeneratedAssetModel.updateStatus((asset as any).id, 'completed', filePath);
       WorkflowTaskModel.updateStatus((task as any).id, 'completed');
 
       db.prepare('UPDATE storyboards SET image_url = ? WHERE id = ?').run(filePath, sb.id);
+
+      // Last frame
+      try {
+        const lastFramePrompt = '[Last Frame / Ending] ' + prompt;
+        const lastPath = await generateImage(lastFramePrompt, { size: '1792x1024', ...imageOpts });
+        db.prepare('UPDATE generated_assets SET thumbnail_url = ? WHERE id = ?').run(lastPath, (asset as any).id);
+        db.prepare('UPDATE storyboards SET last_frame_image = ? WHERE id = ?').run(lastPath, sb.id);
+      } catch (lastErr: any) {
+        logger.error(`Last frame generation failed for storyboard ${sb.id} (episode ${episodeId}):`, lastErr.message);
+      }
 
       logger.info(`Keyframe generated for storyboard ${sb.id} (episode ${episodeId})`);
     } catch (err: any) {

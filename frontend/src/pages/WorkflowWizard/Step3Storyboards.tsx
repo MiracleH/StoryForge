@@ -123,21 +123,21 @@ const Step3Storyboards: React.FC<Props> = ({ projectId, episodeId }) => {
         </Paragraph>
         {showDualVersion ? (
           <Space direction="vertical" size={12}>
-            <Button type="primary" size="large" icon={<RocketOutlined />} loading={loading} onClick={() => handleGenerate('both')}>
-              一键生成双版本分镜
+            <Button type="primary" size="large" icon={<RocketOutlined />} loading={loading || state === 'generating_storyboards'} disabled={loading || state === 'generating_storyboards'} onClick={() => handleGenerate('both')}>
+              {loading || state === 'generating_storyboards' ? '正在生成...' : '一键生成双版本分镜'}
             </Button>
             <Space size={8}>
-              <Button icon={<ThunderboltOutlined />} loading={loading} onClick={() => handleGenerate('seedance')}>
-                仅生成 Seedance 2.0
+              <Button icon={<ThunderboltOutlined />} loading={loading || state === 'generating_storyboards'} disabled={loading || state === 'generating_storyboards'} onClick={() => handleGenerate('seedance')}>
+                {loading || state === 'generating_storyboards' ? '正在生成...' : '仅生成 Seedance 2.0'}
               </Button>
-              <Button icon={<ThunderboltOutlined />} loading={loading} onClick={() => handleGenerate('sora')}>
-                仅生成 Sora-2
+              <Button icon={<ThunderboltOutlined />} loading={loading || state === 'generating_storyboards'} disabled={loading || state === 'generating_storyboards'} onClick={() => handleGenerate('sora')}>
+                {loading || state === 'generating_storyboards' ? '正在生成...' : '仅生成 Sora-2'}
               </Button>
             </Space>
           </Space>
         ) : (
-          <Button type="primary" size="large" icon={<RocketOutlined />} loading={loading} onClick={() => handleGenerate()}>
-            开始生成分镜
+          <Button type="primary" size="large" icon={<RocketOutlined />} loading={loading || state === 'generating_storyboards'} disabled={loading || state === 'generating_storyboards'} onClick={() => handleGenerate()}>
+            {loading || state === 'generating_storyboards' ? '正在生成...' : '开始生成分镜'}
           </Button>
         )}
       </div>
@@ -267,7 +267,7 @@ const Step3Storyboards: React.FC<Props> = ({ projectId, episodeId }) => {
           <Space>
             <Button icon={<ReloadOutlined />} onClick={() => handleGenerate(showDualVersion ? 'both' : undefined)}>重新生成</Button>
             <Button type="primary" size="large" icon={<RocketOutlined />} loading={loading} onClick={handleNextStep}>
-              下一步：生成关键帧
+              下一步：生成首尾帧图片
             </Button>
           </Space>
         </div>
@@ -343,7 +343,7 @@ const Step3Storyboards: React.FC<Props> = ({ projectId, episodeId }) => {
           <>
             <Alert
               message={`双版本分镜完成：Seedance ${seedanceCount} 个 + Sora-2 ${soraCount} 个`}
-              description="分镜已生成并进入关键帧阶段。可重新生成覆盖现有分镜。"
+              description="分镜已生成并进入首尾帧阶段。可重新生成覆盖现有分镜。"
               type="success" showIcon style={{ marginBottom: 16 }}
             />
             <Tabs

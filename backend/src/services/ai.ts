@@ -384,8 +384,15 @@ export async function generateVideoClip(
   prompt: string,
   opts?: {
     version?: 'seedance' | 'sora';
+    model?: string;
     referenceImagePath?: string;
+    lastFramePath?: string;
     duration?: number;
+    seconds?: string;
+    ratio?: string;
+    resolution?: string;
+    generateAudio?: boolean;
+    cameraFixed?: boolean;
     api_key?: string;
     base_url?: string;
   }

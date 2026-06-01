@@ -17,6 +17,8 @@ interface WorkflowStatus {
   script?: string;
 }
 
+interface VideoGenOpts { seconds?: string; ratio?: string; resolution?: string; generate_audio?: boolean; camera_fixed?: boolean; }
+
 interface EpisodeWorkflowState {
   episodeId: number | null;
   status: WorkflowStatus | null;
@@ -45,7 +47,7 @@ interface EpisodeWorkflowState {
   generateSingleKeyframe: (episodeId: number, assetId: number) => Promise<void>;
   regenerateKeyframe: (episodeId: number, assetId: number) => Promise<void>;
   createVideoClips: (episodeId: number) => Promise<void>;
-  generateSingleVideoClip: (episodeId: number, assetId: number) => Promise<void>;
+  generateSingleVideoClip: (episodeId: number, assetId: number, opts?: VideoGenOpts) => Promise<void>;
   mergeVideoClips: (episodeId: number, opts?: { resolution?: string; title?: string }) => Promise<void>;
   fetchVideoStatus: (episodeId: number) => Promise<void>;
   videoStatus: any;
@@ -131,7 +133,7 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
   },
 
   startAnalysis: async (episodeId, extra) => {
-    set((s) => ({ loading: true, error: null, streamContent: '', status: { ...s.status, state: 'analyzing' } as any }));
+    set((s) => ({ loading: true, error: null, streamContent: '', status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: 'analyzing' } as any }));
     get()._sseController?.abort();
 
     return new Promise((resolve, reject) => {
@@ -266,8 +268,16 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
   startAssetGeneration: async (episodeId) => {
     set({ loading: true, error: null });
     try {
-      await episodeWorkflowAPI.generateAssets(episodeId, getImageAISettings());
-      set({ loading: false });
+      const res: any = await episodeWorkflowAPI.generateAssets(episodeId, getImageAISettings());
+      // 从 API 响应中获取状态，而不是立即重置 loading
+      if (res?.data?.state) {
+        set((s) => ({
+          loading: false,
+          status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: res.data.state } as any,
+        }));
+      } else {
+        set({ loading: false });
+      }
       get().pollStatus(episodeId);
     } catch (err: any) {
       set({ loading: false, error: err.message || '素材生成启动失败' });
@@ -314,7 +324,7 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
     set((s) => ({
       loading: true, error: null,
       streamContent: '', streamContentSeedance: '', streamContentSora: '',
-      status: { ...s.status, state: 'generating_storyboards' } as any,
+      status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: 'generating_storyboards' } as any,
     }));
     get()._sseController?.abort();
 
@@ -362,11 +372,19 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
   startKeyframeGeneration: async (episodeId) => {
     set({ loading: true, error: null });
     try {
-      await episodeWorkflowAPI.generateKeyframes(episodeId, getImageAISettings());
-      set({ loading: false });
+      const res: any = await episodeWorkflowAPI.generateKeyframes(episodeId, getImageAISettings());
+      // 从 API 响应中获取状态
+      if (res?.data?.state) {
+        set((s) => ({
+          loading: false,
+          status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: res.data.state } as any,
+        }));
+      } else {
+        set({ loading: false });
+      }
       get().pollStatus(episodeId);
     } catch (err: any) {
-      set({ loading: false, error: err.message || '关键帧生成启动失败' });
+      set({ loading: false, error: err.message || '首尾帧生成启动失败' });
       throw err;
     }
   },
@@ -379,7 +397,7 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
       get().fetchStatus(episodeId);
       return res.data;
     } catch (err: any) {
-      set({ loading: false, error: err.message || '创建关键帧卡片失败' });
+      set({ loading: false, error: err.message || '创建首尾帧卡片失败' });
       throw err;
     }
   },
@@ -401,8 +419,16 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
   createVideoClips: async (episodeId) => {
     set({ loading: true, error: null });
     try {
-      await episodeWorkflowAPI.createVideoClips(episodeId);
-      set({ loading: false });
+      const res: any = await episodeWorkflowAPI.createVideoClips(episodeId);
+      // 从 API 响应中获取状态
+      if (res?.data?.state) {
+        set((s) => ({
+          loading: false,
+          status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: res.data.state } as any,
+        }));
+      } else {
+        set({ loading: false });
+      }
       get().fetchStatus(episodeId);
     } catch (err: any) {
       set({ loading: false, error: err.message || '创建视频片段卡片失败' });
@@ -410,9 +436,9 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
     }
   },
 
-  generateSingleVideoClip: async (episodeId, assetId) => {
+  generateSingleVideoClip: async (episodeId, assetId, opts) => {
     try {
-      await episodeWorkflowAPI.generateSingleVideoClip(episodeId, assetId, getVideoAISettings());
+      await episodeWorkflowAPI.generateSingleVideoClip(episodeId, assetId, { ...getVideoAISettings(), ...opts });
       get().fetchStatus(episodeId);
     } catch (err: any) {
       throw err;
@@ -422,8 +448,16 @@ export const useEpisodeWorkflowStore = create<EpisodeWorkflowState>((set, get) =
   mergeVideoClips: async (episodeId, opts) => {
     set({ loading: true, error: null });
     try {
-      await episodeWorkflowAPI.mergeVideoClips(episodeId, opts);
-      set({ loading: false });
+      const res: any = await episodeWorkflowAPI.mergeVideoClips(episodeId, opts);
+      // 从 API 响应中获取状态
+      if (res?.data?.state) {
+        set((s) => ({
+          loading: false,
+          status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: res.data.state } as any,
+        }));
+      } else {
+        set({ loading: false });
+      }
       get().fetchStatus(episodeId);
     } catch (err: any) {
       set({ loading: false, error: err.message || '视频合成失败' });

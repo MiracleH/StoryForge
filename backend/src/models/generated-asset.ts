@@ -54,7 +54,7 @@ export const GeneratedAssetModel = {
   },
 
   updateStatus(id: number, status: string, imageUrl?: string, errorMessage?: string) {
-    const updates = ['status = ?'];
+    const updates = ['status = ?', 'updated_at = CURRENT_TIMESTAMP'];
     const values: any[] = [status];
     if (imageUrl !== undefined) { updates.push('image_url = ?'); values.push(imageUrl); }
     if (errorMessage !== undefined) { updates.push('error_message = ?'); values.push(errorMessage); }

@@ -269,6 +269,7 @@ export const setupDatabase = async (): Promise<void> => {
       // Dual-version storyboards
       "ALTER TABLE storyboards ADD COLUMN version TEXT DEFAULT 'standard'",
       "ALTER TABLE storyboards ADD COLUMN sora_prompt TEXT",
+      "ALTER TABLE storyboards ADD COLUMN last_frame_image TEXT",
       "ALTER TABLE episodes ADD COLUMN script TEXT",
       "ALTER TABLE videos ADD COLUMN episode_id INTEGER",
       // Fix generated_assets CHECK constraint to include video_clip

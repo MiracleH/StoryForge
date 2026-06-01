@@ -106,7 +106,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   startAnalysis: async (projectId, extra) => {
-    set((s) => ({ loading: true, error: null, streamContent: '', status: { ...s.status, state: 'analyzing' } as any }));
+    set((s) => ({ loading: true, error: null, streamContent: '', status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: 'analyzing' } as any }));
     get()._sseController?.abort();
 
     return new Promise((resolve, reject) => {
@@ -242,8 +242,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   startAssetGeneration: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      await workflowAPI.generateAssets(projectId, getImageAISettings());
-      set({ loading: false });
+      const res: any = await workflowAPI.generateAssets(projectId, getImageAISettings());
+      // 从 API 响应中获取状态，而不是立即重置 loading
+      if (res?.data?.state) {
+        set((s) => ({
+          loading: false,
+          status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: res.data.state } as any,
+        }));
+      } else {
+        set({ loading: false });
+      }
       get().pollStatus(projectId);
     } catch (err: any) {
       set({ loading: false, error: err.message || '素材生成启动失败' });
@@ -282,7 +290,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   startStoryboardGenerationStream: async (projectId) => {
-    set((s) => ({ loading: true, error: null, streamContent: '', status: { ...s.status, state: 'generating_storyboards' } as any }));
+    set((s) => ({ loading: true, error: null, streamContent: '', status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: 'generating_storyboards' } as any }));
     get()._sseController?.abort();
 
     return new Promise<void>((resolve, reject) => {
@@ -314,11 +322,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   startKeyframeGeneration: async (projectId) => {
     set({ loading: true, error: null });
     try {
-      await workflowAPI.generateKeyframes(projectId, getImageAISettings());
-      set({ loading: false });
+      const res: any = await workflowAPI.generateKeyframes(projectId, getImageAISettings());
+      // 从 API 响应中获取状态
+      if (res?.data?.state) {
+        set((s) => ({
+          loading: false,
+          status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: res.data.state } as any,
+        }));
+      } else {
+        set({ loading: false });
+      }
       get().pollStatus(projectId);
     } catch (err: any) {
-      set({ loading: false, error: err.message || '关键帧生成启动失败' });
+      set({ loading: false, error: err.message || '首尾帧生成启动失败' });
       throw err;
     }
   },
@@ -326,8 +342,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   generateVideo: async (projectId, opts) => {
     set({ loading: true, error: null });
     try {
-      await workflowAPI.generateVideo(projectId, opts);
-      set({ loading: false });
+      const res: any = await workflowAPI.generateVideo(projectId, opts);
+      // 从 API 响应中获取状态
+      if (res?.data?.state) {
+        set((s) => ({
+          loading: false,
+          status: { ...(s.status || { progress: 0, error: null, style_preset: 'anime', tasks: { pending: 0, running: 0, completed: 0, failed: 0 }, assets_count: 0 }), state: res.data.state } as any,
+        }));
+      } else {
+        set({ loading: false });
+      }
       get().fetchStatus(projectId);
     } catch (err: any) {
       set({ loading: false, error: err.message || '视频生成启动失败' });

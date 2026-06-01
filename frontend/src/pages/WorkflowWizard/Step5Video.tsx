@@ -287,15 +287,24 @@ const Step5Video: React.FC<Props> = ({ projectId, episodeId }) => {
         style={{ marginBottom: 16 }}
         action={
           <Space>
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              loading={loading}
+              onClick={handleCreateCards}
+            >
+              重建卡片
+            </Button>
             {pendingCount > 0 && (
               <Button
                 type="primary"
                 size="small"
                 icon={<ThunderboltOutlined />}
-                loading={loading}
+                loading={loading || state === 'generating_video'}
+                disabled={loading || state === 'generating_video'}
                 onClick={handleGenerateAll}
               >
-                一键生成全部 ({pendingCount})
+                {loading || state === 'generating_video' ? '正在生成...' : `一键生成全部 (${pendingCount})`}
               </Button>
             )}
             {completedCount > 0 && (

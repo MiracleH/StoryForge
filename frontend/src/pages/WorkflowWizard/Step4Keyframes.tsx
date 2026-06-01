@@ -20,6 +20,7 @@ interface KeyframeCard {
   description: string;
   prompt: string;
   image_url: string;
+  thumbnail_url?: string;
   status: string;
   style_preset: string;
   metadata: string;
@@ -100,7 +101,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
   const handleCreateCards = async (style?: string) => {
     try {
       const res = await episodeStore.createKeyframeCards(entityId, style || selectedStyle);
-      message.success(res?.data?.message || '关键帧卡片创建完成');
+      message.success(res?.data?.message || '首尾帧卡片创建完成');
       setCardsCreated(true);
       await fetchKeyframes();
     } catch {}
@@ -110,7 +111,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
     setGeneratingIds(prev => new Set(prev).add(assetId));
     try {
       await episodeStore.generateSingleKeyframe(entityId, assetId);
-      message.success('关键帧生成完成');
+      message.success('首尾帧图片生成完成');
       await fetchKeyframes();
     } catch {}
     setGeneratingIds(prev => {
@@ -127,7 +128,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
   };
 
   const handleGenerateAll = async () => {
-    const pending = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed');
+    const pending = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed' || (k.status === 'completed' && !k.thumbnail_url));
     for (const k of pending) {
       await handleGenerateSingle(k.id);
     }
@@ -142,7 +143,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
     ? keyframes.filter(k => k.storyboard_version === activeVersion)
     : keyframes;
 
-  const pendingCount = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed').length;
+  const pendingCount = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed' || (k.status === 'completed' && !k.thumbnail_url)).length;
   const completedCount = filteredKeyframes.filter(k => k.status === 'completed').length;
   const failedCount = filteredKeyframes.filter(k => k.status === 'failed').length;
   const seedanceCount = keyframes.filter(k => k.storyboard_version === 'seedance').length;
@@ -178,7 +179,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
             )
           }
           actions={[
-            (kf.status === 'pending' || kf.status === 'failed') ? (
+            (kf.status === 'pending' || kf.status === 'failed' || (kf.status === 'completed' && !kf.thumbnail_url)) ? (
               <Button
                 type="primary"
                 size="small"
@@ -186,7 +187,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
                 loading={isGenerating}
                 onClick={(e) => { e.stopPropagation(); handleGenerateSingle(kf.id); }}
               >
-                {isGenerating ? '生成中' : '生成'}
+                {isGenerating ? '生成中' : (kf.status === 'completed' ? '补尾帧' : '生成')}
               </Button>
             ) : (
               <Button
@@ -203,9 +204,9 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
           <Card.Meta
             title={
               <Space size={4}>
-                <Text ellipsis style={{ maxWidth: 120 }}>{kf.name || kf.storyboard_title || '关键帧'}</Text>
+                <Text ellipsis style={{ maxWidth: 120 }}>{kf.name || kf.storyboard_title || '首尾帧'}</Text>
                 <Tag color={kf.status === 'completed' ? 'green' : kf.status === 'failed' ? 'red' : kf.status === 'generating' ? 'processing' : 'blue'}>
-                  {kf.status === 'completed' ? '已生成' : kf.status === 'failed' ? '失败' : kf.status === 'generating' ? '生成中' : '待生成'}
+                  {kf.status === 'completed' ? (kf.thumbnail_url ? '首尾帧' : '首帧') : kf.status === 'failed' ? '失败' : kf.status === 'generating' ? '生成中' : '待生成'}
                 </Tag>
               </Space>
             }
@@ -233,9 +234,9 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
     return (
       <div style={{ textAlign: 'center', padding: 40 }}>
         <ThunderboltOutlined style={{ fontSize: 48, color: '#faad14', marginBottom: 16 }} />
-        <Title level={4}>关键帧生成</Title>
+        <Title level={4}>首尾帧图片生成</Title>
         <Paragraph type="secondary" style={{ maxWidth: 500, margin: '0 auto 24px' }}>
-          创建关键帧卡片后，AI 将基于分镜和已生成的素材图片（角色、场景、道具），通过图片编辑接口合成关键帧。
+          创建首尾帧卡片后，AI 将基于分镜和已生成的素材图片（角色、场景、道具），通过图片编辑接口合成首尾帧图片。
         </Paragraph>
 
         <Space direction="vertical" size={16} style={{ marginBottom: 24 }}>
@@ -255,13 +256,13 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
             loading={loading}
             onClick={() => handleCreateCards(selectedStyle)}
           >
-            创建关键帧卡片
+            创建首尾帧卡片
           </Button>
         </Space>
 
         <div>
-          <Button icon={<ThunderboltOutlined />} loading={loading} onClick={() => startKeyframeGeneration(entityId)}>
-            一键批量生成（旧版纯文本生图）
+          <Button icon={<ThunderboltOutlined />} loading={loading || state === 'generating_keyframes'} disabled={loading || state === 'generating_keyframes'} onClick={() => startKeyframeGeneration(entityId)}>
+            {loading || state === 'generating_keyframes' ? '正在生成...' : '一键批量生成（旧版纯文本生图）'}
           </Button>
         </div>
       </div>
@@ -272,9 +273,9 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
   if (['generating_keyframes', 'completed'].includes(state) || cardsCreated) {
     return (
       <div>
-        <Title level={4}>关键帧生成</Title>
+        <Title level={4}>首尾帧图片生成</Title>
         <Alert
-          message={`关键帧卡片：共 ${filteredKeyframes.length} 个（已完成: ${completedCount}${pendingCount > 0 ? `, 待生成: ${pendingCount}` : ''}${failedCount > 0 ? `, 失败: ${failedCount}` : ''}）`}
+          message={`首尾帧卡片：共 ${filteredKeyframes.length} 个（已完成: ${completedCount}${pendingCount > 0 ? `, 待生成: ${pendingCount}` : ''}${failedCount > 0 ? `, 失败: ${failedCount}` : ''}）`}
           type={pendingCount === 0 ? 'success' : 'info'}
           showIcon
           style={{ marginBottom: 16 }}
@@ -284,10 +285,11 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
                 type="primary"
                 size="small"
                 icon={<ThunderboltOutlined />}
-                loading={loading}
+                loading={loading || state === 'generating_keyframes'}
+                disabled={loading || state === 'generating_keyframes'}
                 onClick={handleGenerateAll}
               >
-                一键生成全部 ({pendingCount})
+                {loading || state === 'generating_keyframes' ? '正在生成...' : `一键生成全部 (${pendingCount})`}
               </Button>
             ) : undefined
           }
@@ -336,13 +338,13 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
           </Row>
         ) : (
           <div style={{ textAlign: 'center', padding: 40 }}>
-            <Text type="secondary">当前版本暂无数据，请先创建关键帧卡片</Text>
+            <Text type="secondary">当前版本暂无数据，请先创建首尾帧卡片</Text>
           </div>
         )}
 
         {/* Detail Modal */}
         <Modal
-          title={selectedKf?.name || selectedKf?.storyboard_title || '关键帧详情'}
+          title={selectedKf?.name || selectedKf?.storyboard_title || '首尾帧详情'}
           open={modalOpen}
           onCancel={() => setModalOpen(false)}
           footer={null}
@@ -372,11 +374,26 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
 
               {selectedKf.image_url && selectedKf.image_url !== 'pending' && (
                 <Card title="生成结果" size="small" style={{ marginBottom: 12 }}>
-                  <Image src={selectedKf.image_url} style={{ width: '100%', maxHeight: 400, objectFit: 'contain' }} />
+                  <Row gutter={12}>
+                    <Col span={selectedKf.thumbnail_url ? 12 : 24}>
+                      <div style={{ textAlign: 'center', marginBottom: 4 }}>
+                        <Tag color="blue">首帧</Tag>
+                      </div>
+                      <Image src={selectedKf.image_url} style={{ width: '100%', maxHeight: 400, objectFit: 'contain' }} />
+                    </Col>
+                    {selectedKf.thumbnail_url && (
+                      <Col span={12}>
+                        <div style={{ textAlign: 'center', marginBottom: 4 }}>
+                          <Tag color="orange">尾帧</Tag>
+                        </div>
+                        <Image src={selectedKf.thumbnail_url} style={{ width: '100%', maxHeight: 400, objectFit: 'contain' }} />
+                      </Col>
+                    )}
+                  </Row>
                 </Card>
               )}
 
-              <Card title="关键帧提示词" size="small" style={{ marginBottom: 12 }}>
+              <Card title="首尾帧提示词" size="small" style={{ marginBottom: 12 }}>
                 <Paragraph
                   style={{
                     whiteSpace: 'pre-wrap',

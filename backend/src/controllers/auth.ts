@@ -6,7 +6,7 @@ import { createError } from '../middleware/errorHandler';
 import { UserModel } from '../models/user';
 
 function generateToken(payload: { id: number; email: string; username: string }) {
-  return jwt.sign(payload, process.env.JWT_SECRET || 'your-secret-key', {
+  return jwt.sign(payload, process.env.JWT_SECRET!, {
     expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any,
     issuer: 'story-video',
     audience: 'story-video',

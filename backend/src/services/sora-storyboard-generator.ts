@@ -45,6 +45,7 @@ Generate a JSON array of video shots optimized for Sora-2 text-to-video generati
 ## Guidelines
 - Each shot is exactly 3 seconds, time ranges tile continuously without gaps: 0-3s, 3-6s, 6-9s, 9-12s...
 - duration must be 3, time_range must be the exact continuous interval
+- Generate as many shots per scene as possible (recommended 10-20), the system will automatically group every 5 shots into one storyboard card
 - sora_prompt must be English, highly descriptive, cinematic quality
 - Include: shot type, lighting setup, color palette, character placement, action, mood, atmosphere, camera movement, focal point
 - Use Sora-2 friendly language: concrete visual descriptions, avoid abstract concepts
@@ -130,25 +131,47 @@ export async function generateSoraStoryboardsForEpisode(
     }
 
     const parsed = extractJSON(raw);
+    const GROUP_SIZE = 5; // 5个镜头一组
 
     if (parsed.storyboards && Array.isArray(parsed.storyboards)) {
       for (const sceneSb of parsed.storyboards) {
         const sceneId = sceneSb.scene_id;
 
         if (sceneSb.shots && Array.isArray(sceneSb.shots)) {
-          for (const shot of sceneSb.shots) {
+          // 按 GROUP_SIZE 分组
+          for (let i = 0; i < sceneSb.shots.length; i += GROUP_SIZE) {
+            const group = sceneSb.shots.slice(i, i + GROUP_SIZE);
+
+            // 合并标题：首个 ~ 末个
+            const title = group.length === 1
+              ? (group[0].title || `Shot Group #${totalGenerated + 1}`)
+              : `${group[0].title || 'Shot ' + (i + 1)} ~ ${group[group.length - 1].title || 'Shot ' + (i + group.length)}`;
+
+            // 合并描述
+            const description = group.map((s: any, idx: number) => `[${idx + 1}] ${s.description || ''}`).join('\n');
+
+            // 时长 = 组内镜头数 * 3秒
+            const duration = group.length * 3;
+
+            // 取第一个镜头的景别和运镜
+            const cameraAngle = group[0].camera_angle || 'medium shot';
+            const cameraMovement = group[0].camera_movement || 'static';
+
+            // 合并 sora_prompt：取每组第一个镜头的 prompt
+            const soraPrompt = group[0].sora_prompt || '';
+
             db.prepare(`
               INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index, transition_type, transition_duration, sora_prompt, version)
               VALUES (?, ?, ?, ?, ?, ?, ?, 'cut', 0.5, ?, 'sora')
             `).run(
               sceneId,
-              shot.title || `Shot #${totalGenerated + 1}`,
-              shot.description || '',
-              Math.round(shot.duration) || 3,
-              shot.camera_angle || 'medium shot',
-              shot.camera_movement || 'static',
+              title,
+              description,
+              duration,
+              cameraAngle,
+              cameraMovement,
               totalGenerated,
-              shot.sora_prompt || ''
+              soraPrompt
             );
             totalGenerated++;
           }

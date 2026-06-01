@@ -412,8 +412,8 @@ const Step2Assets: React.FC<Props> = ({ projectId, episodeId }) => {
               </div>
               {assets.some(a => a.status === 'pending') && (
                 <div style={{ textAlign: 'center', marginBottom: 16 }}>
-                  <Button type="primary" size="large" icon={<RocketOutlined />} loading={loading} onClick={handleGenerate}>
-                    一键生成全部图片
+                  <Button type="primary" size="large" icon={<RocketOutlined />} loading={loading || state === 'generating_assets'} disabled={loading || state === 'generating_assets'} onClick={handleGenerate}>
+                    {loading || state === 'generating_assets' ? '正在生成...' : '一键生成全部图片'}
                   </Button>
                 </div>
               )}

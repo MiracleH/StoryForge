@@ -34,8 +34,8 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   assets_ready: { label: '素材就绪', color: 'success' },
   generating_storyboards: { label: '生成分镜中...', color: 'processing' },
   storyboards_ready: { label: '分镜就绪', color: 'success' },
-  generating_keyframes: { label: '生成关键帧中...', color: 'processing' },
-  completed: { label: '关键帧就绪', color: 'success' },
+  generating_keyframes: { label: '生成首尾帧中...', color: 'processing' },
+  completed: { label: '首尾帧就绪', color: 'success' },
   generating_video: { label: '生成视频中...', color: 'processing' },
   video_ready: { label: '视频就绪', color: 'success' },
   failed: { label: '失败', color: 'error' },
@@ -150,7 +150,7 @@ const WorkflowWizard: React.FC = () => {
           { title: '剧本审核', description: 'AI 分析 + 审核 + 修改' },
           { title: '素材生成', description: '角色/场景/道具素材卡片' },
           { title: '分镜生成', description: 'AI 生成分镜 JSON' },
-          { title: '关键帧生成', description: '生成分镜图' },
+          { title: '首尾帧生成', description: '生成首尾帧图片' },
           { title: '视频生成', description: '合成最终视频' },
         ]}
         onChange={handleStepClick}

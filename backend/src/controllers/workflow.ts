@@ -134,6 +134,7 @@ export const WorkflowController = {
         }
       }
 
+      db.prepare("DELETE FROM characters WHERE project_id = ?").run(projectId);
       for (const char of result.characters) {
         db.prepare(
           'INSERT INTO characters (project_id, name, description, personality, appearance, clothing, distinguishing_features, age_range, build, visual_prompt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -141,7 +142,10 @@ export const WorkflowController = {
       }
 
       db.prepare("DELETE FROM props WHERE project_id = ?").run(projectId);
+      const seenProps = new Set<string>();
       for (const prop of (result.props || [])) {
+        if (seenProps.has(prop.name)) continue;
+        seenProps.add(prop.name);
         db.prepare(
           'INSERT INTO props (project_id, name, description, image_prompt) VALUES (?, ?, ?, ?)'
         ).run(projectId, prop.name, prop.description, prop.image_prompt);
@@ -650,7 +654,10 @@ export const WorkflowController = {
     }
 
     const props = db.prepare('SELECT * FROM props WHERE project_id = ?').all(projectId) as any[];
+    const seenPropNames = new Set<string>();
     for (const prop of props) {
+      if (seenPropNames.has(prop.name)) continue;
+      seenPropNames.add(prop.name);
       GeneratedAssetModel.create({
         project_id: projectId, asset_type: 'prop', entity_type: 'prop', entity_id: prop.id,
         name: prop.name, description: prop.description,
@@ -1083,6 +1090,7 @@ export const WorkflowController = {
             }
           }
 
+          db.prepare("DELETE FROM characters WHERE project_id = ?").run(projectId);
           for (const char of result.characters) {
             db.prepare(
               'INSERT INTO characters (project_id, name, description, personality, appearance, clothing, distinguishing_features, age_range, build, visual_prompt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -1090,7 +1098,10 @@ export const WorkflowController = {
           }
 
           db.prepare("DELETE FROM props WHERE project_id = ?").run(projectId);
+          const seenProps = new Set<string>();
           for (const prop of (result.props || [])) {
+            if (seenProps.has(prop.name)) continue;
+            seenProps.add(prop.name);
             db.prepare(
               'INSERT INTO props (project_id, name, description, image_prompt) VALUES (?, ?, ?, ?)'
             ).run(projectId, prop.name, prop.description, prop.image_prompt);
@@ -1363,7 +1374,10 @@ export const EpisodeWorkflowController = {
       }
 
       db.prepare("DELETE FROM props WHERE project_id = ?").run(projectId);
+      const seenProps = new Set<string>();
       for (const prop of (result.props || [])) {
+        if (seenProps.has(prop.name)) continue;
+        seenProps.add(prop.name);
         db.prepare(
           'INSERT INTO props (project_id, name, description, image_prompt) VALUES (?, ?, ?, ?)'
         ).run(projectId, prop.name, prop.description, prop.image_prompt);
@@ -1905,7 +1919,10 @@ export const EpisodeWorkflowController = {
       sceneCount++;
     }
 
+    const seenPropNames = new Set<string>();
     for (const prop of props) {
+      if (seenPropNames.has(prop.name)) continue;
+      seenPropNames.add(prop.name);
       GeneratedAssetModel.createWithEpisode({
         project_id: episode.project_id, episode_id: episodeId,
         asset_type: 'prop', entity_type: 'prop', entity_id: prop.id,
@@ -2050,7 +2067,7 @@ export const EpisodeWorkflowController = {
     const asset = GeneratedAssetModel.findById(assetId) as any;
     if (!asset || asset.episode_id !== episodeId) throw createError('Keyframe card not found', 404);
     if (asset.asset_type !== 'keyframe') throw createError('该素材不是关键帧卡片', 400);
-    if (asset.status === 'completed') throw createError('该关键帧已生成', 400);
+    if (asset.status === 'completed' && asset.thumbnail_url) throw createError('该首尾帧已生成', 400);
 
     // Parse reference asset IDs from metadata
     let referenceAssetIds: number[] = [];
@@ -2086,6 +2103,7 @@ export const EpisodeWorkflowController = {
     GeneratedAssetModel.updateStatus(assetId, 'generating');
 
     try {
+      // Step 1: Generate first frame
       const imageUrl = await generateImageEdit(asset.prompt, refImages, {
         size: '1792x1024',
         ...opts,
@@ -2098,10 +2116,29 @@ export const EpisodeWorkflowController = {
         db.prepare('UPDATE storyboards SET image_url = ? WHERE id = ?').run(imageUrl, asset.entity_id);
       }
 
-      res.json({ success: true, data: { status: 'completed', image_url: imageUrl, reference_count: refImages.length } });
+      // Step 2: Generate last frame
+      const lastFramePrompt = '[Last Frame / Ending] ' + asset.prompt;
+      try {
+        const lastUrl = await generateImageEdit(lastFramePrompt, refImages, {
+          size: '1792x1024',
+          ...opts,
+        });
+
+        db.prepare('UPDATE generated_assets SET thumbnail_url = ? WHERE id = ?').run(lastUrl, assetId);
+
+        if (asset.entity_type === 'storyboard' && asset.entity_id) {
+          db.prepare('UPDATE storyboards SET last_frame_image = ? WHERE id = ?').run(lastUrl, asset.entity_id);
+        }
+
+        res.json({ success: true, data: { status: 'completed', image_url: imageUrl, last_frame_url: lastUrl, reference_count: refImages.length } });
+      } catch (lastErr: any) {
+        // Last frame failed, but first frame succeeded - still mark as completed
+        logger.error(`尾帧生成失败 (asset ${assetId}):`, lastErr.message);
+        res.json({ success: true, data: { status: 'completed', image_url: imageUrl, last_frame_url: null, last_frame_error: lastErr.message, reference_count: refImages.length } });
+      }
     } catch (err: any) {
       GeneratedAssetModel.updateStatus(assetId, 'failed', undefined, err.message);
-      throw createError(`关键帧生成失败: ${err.message}`, 500);
+      throw createError(`首帧生成失败: ${err.message}`, 500);
     }
   },
 
@@ -2382,8 +2419,14 @@ export const EpisodeWorkflowController = {
       const metadata = JSON.parse(asset.metadata || '{}');
       const videoPath = await generateVideoClip(asset.prompt, {
         version: metadata.storyboard_version || 'seedance',
+        model: req.body.model,
         referenceImagePath: metadata.reference_image || undefined,
-        duration: metadata.duration || 5,
+        lastFramePath: metadata.last_frame_image || undefined,
+        seconds: req.body.seconds || String(metadata.duration || 5),
+        ratio: req.body.ratio || metadata.ratio || undefined,
+        resolution: req.body.resolution || metadata.resolution || undefined,
+        generateAudio: req.body.generate_audio ?? metadata.generate_audio ?? true,
+        cameraFixed: req.body.camera_fixed ?? metadata.camera_fixed ?? false,
         api_key: req.body.api_key,
         base_url: req.body.base_url,
       });

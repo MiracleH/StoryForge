@@ -24,7 +24,7 @@ import versionRoutes from './routes/versions';
 import characterAssetRoutes from './routes/character-assets';
 import aiRoutes from './routes/ai';
 import workflowRoutes, { episodeRouter as episodeWorkflowRoutes } from './routes/workflow';
-import episodeRoutes from './routes/episodes';
+import projectEpisodeRoutes, { episodeRouter as episodeOnlyRoutes } from './routes/episodes';
 
 // 加载环境变量
 dotenv.config();
@@ -82,8 +82,8 @@ app.use('/api/versions', versionRoutes);
 app.use('/api/character-assets', characterAssetRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/workflow', workflowRoutes);
-app.use('/api/projects', episodeRoutes);
-app.use('/api/episodes', episodeRoutes);
+app.use('/api/projects', projectEpisodeRoutes);
+app.use('/api/episodes', episodeOnlyRoutes);
 app.use('/api/episodes', episodeWorkflowRoutes);
 
 // 错误处理
