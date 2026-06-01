@@ -23,7 +23,7 @@ export function createKeyframeCardsForEpisode(
   const projectId = episode.project_id;
   const style = stylePreset || episode.style_preset || 'anime';
 
-  // Get all storyboards for this episode
+  // Get storyboards for this episode (only seedance and sora versions, skip standard)
   const storyboards = db.prepare(`
     SELECT sb.*, s.id as scene_id, s.title as scene_title, s.description as scene_description,
            s.location, s.time_of_day, s.mood, s.atmosphere, s.visual_description,
@@ -31,7 +31,7 @@ export function createKeyframeCardsForEpisode(
     FROM storyboards sb
     JOIN scenes s ON sb.scene_id = s.id
     JOIN chapters c ON s.chapter_id = c.id
-    WHERE c.episode_id = ?
+    WHERE c.episode_id = ? AND sb.version IN ('seedance', 'sora')
     ORDER BY c.order_index, s.order_index, sb.order_index
   `).all(episodeId) as any[];
 

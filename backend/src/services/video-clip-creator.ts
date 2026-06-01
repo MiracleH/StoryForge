@@ -15,14 +15,14 @@ export function createVideoClipsForEpisode(episodeId: number) {
   const projectId = episode.project_id;
   const style = episode.style_preset || 'anime';
 
-  // Get all storyboards for this episode
+  // Get storyboards for this episode (only seedance and sora versions, skip standard)
   const storyboards = db.prepare(`
     SELECT sb.*, s.title as scene_title, s.description as scene_description,
            c.title as chapter_title, c.order_index as chapter_order
     FROM storyboards sb
     JOIN scenes s ON sb.scene_id = s.id
     JOIN chapters c ON s.chapter_id = c.id
-    WHERE c.episode_id = ?
+    WHERE c.episode_id = ? AND sb.version IN ('seedance', 'sora')
     ORDER BY c.order_index, s.order_index, sb.order_index
   `).all(episodeId) as any[];
 

@@ -95,10 +95,51 @@ const Step5Video: React.FC<Props> = ({ projectId, episodeId }) => {
     setGeneratingIds(prev => new Set(prev).add(assetId));
     try {
       await episodeStore.generateSingleVideoClip(entityId, assetId);
-      message.success('视频片段生成完成');
-      await fetchClips();
-      episodeStore.fetchVideoStatus(entityId);
+      message.info('视频生成已启动，请等待完成...');
+      // 轮询等待生成完成
+      pollVideoStatus(assetId);
     } catch {}
+    setGeneratingIds(prev => {
+      const next = new Set(prev);
+      next.delete(assetId);
+      return next;
+    });
+  };
+
+  const pollVideoStatus = async (assetId: number) => {
+    const maxAttempts = 120; // 最多轮询 10 分钟
+    const interval = 5000; // 每 5 秒查询一次
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, interval));
+      try {
+        const res = await episodeWorkflowAPI.getVideoClips(entityId, activeVersion);
+        const data = (res as any).data || res || [];
+        const clip = data.find((c: VideoClipCard) => c.id === assetId);
+        if (clip?.status === 'completed') {
+          message.success('视频片段生成完成');
+          setClips(data);
+          setGeneratingIds(prev => {
+            const next = new Set(prev);
+            next.delete(assetId);
+            return next;
+          });
+          episodeStore.fetchVideoStatus(entityId);
+          return;
+        }
+        if (clip?.status === 'failed') {
+          message.error('视频片段生成失败');
+          setClips(data);
+          setGeneratingIds(prev => {
+            const next = new Set(prev);
+            next.delete(assetId);
+            return next;
+          });
+          return;
+        }
+      } catch {}
+    }
+    // 超时后刷新状态
+    fetchClips();
     setGeneratingIds(prev => {
       const next = new Set(prev);
       next.delete(assetId);
@@ -212,16 +253,6 @@ const Step5Video: React.FC<Props> = ({ projectId, episodeId }) => {
       </Col>
     );
   };
-
-  // --- State: generating_video (merge in progress) ---
-  if (isMerging) {
-    return (
-      <div style={{ textAlign: 'center', padding: 40 }}>
-        <Title level={4}>视频合成中...</Title>
-        <Text type="secondary">正在使用 FFmpeg 合并 {completedCount} 个视频片段</Text>
-      </div>
-    );
-  }
 
   // --- State: video_ready (show final video) ---
   if (isReady) {

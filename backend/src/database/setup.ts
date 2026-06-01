@@ -228,6 +228,7 @@ export const setupDatabase = async (): Promise<void> => {
       "ALTER TABLE videos ADD COLUMN bgm_volume REAL DEFAULT 0.5",
       "ALTER TABLE dialogues ADD COLUMN audio_path TEXT",
       "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+      "ALTER TABLE generated_assets ADD COLUMN updated_at DATETIME",
       // Workflow state tracking
       "ALTER TABLE projects ADD COLUMN workflow_state TEXT DEFAULT 'idle'",
       "ALTER TABLE projects ADD COLUMN style_preset TEXT DEFAULT 'anime'",
@@ -454,6 +455,7 @@ export const setupDatabase = async (): Promise<void> => {
         error_message TEXT,
         retry_count INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       )
     `);

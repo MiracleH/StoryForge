@@ -118,7 +118,7 @@ export function downloadImage(url: string, headers?: Record<string, string>): Pr
 }
 
 export async function generateText(prompt: string, opts?: {
-  model?: string; temperature?: number; responseFormat?: any; api_key?: string; base_url?: string
+  model?: string; temperature?: number; responseFormat?: any; api_key?: string; base_url?: string; systemMessage?: string
 }): Promise<string> {
   let client: OpenAI;
   if (opts?.api_key) {
@@ -130,9 +130,14 @@ export async function generateText(prompt: string, opts?: {
     client = getClient('text', 'AI_TEXT_API_KEY', 'AI_TEXT_BASE_URL');
   }
   const model = opts?.model || aiConfig.textModel;
+  const messages: any[] = [];
+  if (opts?.systemMessage) {
+    messages.push({ role: 'system', content: opts.systemMessage });
+  }
+  messages.push({ role: 'user', content: prompt });
   const params: any = {
     model,
-    messages: [{ role: 'user', content: prompt }],
+    messages,
     max_tokens: 65536,
   };
   // temperature 不传则用 provider 默认值，避免某些 provider 不支持
@@ -144,7 +149,7 @@ export async function generateText(prompt: string, opts?: {
     params.response_format = opts.responseFormat;
   }
 
-  logger.info(`LLM request: model=${model}, base_url=${client.baseURL}`);
+  logger.info(`LLM request: model=${model}, base_url=${client.baseURL}, prompt 长度=${params.messages[0].content.length} 字`);
 
   try {
     const response = await client.chat.completions.create(params);
@@ -379,6 +384,7 @@ export function saveFile(buffer: Buffer, filename: string): string {
 
 /**
  * 调用 AI 视频生成 API，为单个分镜生成视频片段
+ * 支持 Sora API 格式：POST /v1/videos 创建任务，GET /v1/videos/{task_id} 查询状态，GET /v1/videos/{task_id}/content 获取内容
  */
 export async function generateVideoClip(
   prompt: string,
@@ -402,70 +408,83 @@ export async function generateVideoClip(
   if (!apiKey) throw new Error('AI 视频生成 API Key 未配置');
 
   let baseUrl = (opts?.base_url || env('AI_VIDEO_BASE_URL', env('AI_BASE_URL', 'https://www.packyapi.com'))).replace(/\/+$/, '');
-  const model = version === 'sora'
-    ? env('AI_VIDEO_MODEL_SORA', 'sora-2')
-    : env('AI_VIDEO_MODEL_SEEDANCE', 'seedance-2.0');
+  // 优先使用前端传入的 model，否则根据 version 从环境变量读取
+  // 支持 AI_VIDEO_MODEL（通用）、AI_VIDEO_MODEL_SORA、AI_VIDEO_MODEL_SEEDANCE
+  const model = opts?.model
+    || (version === 'sora'
+      ? env('AI_VIDEO_MODEL_SORA', env('AI_VIDEO_MODEL', 'sora-2'))
+      : env('AI_VIDEO_MODEL_SEEDANCE', env('AI_VIDEO_MODEL', 'seedance-2.0')));
 
   const url = baseUrl.endsWith('/v1') ? `${baseUrl}/videos` : `${baseUrl}/v1/videos`;
 
-  // Build multipart form data
-  const boundary = `----FormBoundary${Date.now()}${Math.random().toString(36).slice(2)}`;
-  const parts: Buffer[] = [];
+  // 使用 FormData 构建请求（Sora API 格式）
+  const formData = new FormData();
 
-  const addField = (name: string, value: string) => {
-    parts.push(Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`
-    ));
-  };
+  formData.append('model', model);
+  formData.append('prompt', prompt);
+  formData.append('seconds', String(opts?.seconds || opts?.duration || 5));
 
-  const addFile = (name: string, filePath: string) => {
-    const fullPath = filePath.startsWith('/uploads/')
-      ? path.join(uploadDir, path.basename(filePath))
-      : path.resolve(filePath);
-    if (!fs.existsSync(fullPath)) {
-      logger.warn(`Reference image not found: ${fullPath}, skipping`);
-      return;
+  // 添加首帧参考图片
+  if (opts?.referenceImagePath) {
+    const fullPath = opts.referenceImagePath.startsWith('/uploads/')
+      ? path.join(uploadDir, path.basename(opts.referenceImagePath))
+      : path.resolve(opts.referenceImagePath);
+
+    if (fs.existsSync(fullPath)) {
+      const fileBuffer = fs.readFileSync(fullPath);
+      const blob = new Blob([fileBuffer], { type: 'image/png' });
+      formData.append('input_reference', blob, 'first_frame.png');
+      logger.info(`Appended first frame: ${fullPath} (${fileBuffer.length} bytes)`);
+    } else {
+      logger.warn(`First frame image not found: ${fullPath}, skipping`);
     }
-    const fileBuffer = fs.readFileSync(fullPath);
-    const filename = path.basename(fullPath);
-    const ext = path.extname(fullPath).toLowerCase();
-    const mimeMap: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
-    const mime = mimeMap[ext] || 'image/png';
+  }
 
-    parts.push(Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`
-    ));
-    parts.push(fileBuffer);
-    parts.push(Buffer.from('\r\n'));
-  };
+  // 添加尾帧参考图片
+  if (opts?.lastFramePath) {
+    const fullPath = opts.lastFramePath.startsWith('/uploads/')
+      ? path.join(uploadDir, path.basename(opts.lastFramePath))
+      : path.resolve(opts.lastFramePath);
 
-  addField('model', model);
-  addField('prompt', prompt);
+    if (fs.existsSync(fullPath)) {
+      const fileBuffer = fs.readFileSync(fullPath);
+      const blob = new Blob([fileBuffer], { type: 'image/png' });
+      formData.append('input_reference', blob, 'last_frame.png');
+      logger.info(`Appended last frame: ${fullPath} (${fileBuffer.length} bytes)`);
+    } else {
+      logger.warn(`Last frame image not found: ${fullPath}, skipping`);
+    }
+  }
+
   // Sora-2 不接受 1920x1080，seedance 使用宽屏尺寸
   if (version === 'seedance') {
-    addField('size', '1920x1080');
-  }
-  addField('duration', String(opts?.duration || 5));
-  addField('response_format', 'url');
-
-  if (opts?.referenceImagePath) {
-    addFile('image', opts.referenceImagePath);
+    formData.append('size', '1920x1080');
   }
 
-  parts.push(Buffer.from(`--${boundary}--\r\n`));
-  const body = Buffer.concat(parts);
+  logger.info(`generateVideoClip: url=${url}, model=${model}, version=${version}, hasFirstFrame=${!!opts?.referenceImagePath}, hasLastFrame=${!!opts?.lastFramePath}`);
 
-  logger.info(`generateVideoClip: url=${url}, model=${model}, version=${version}, hasRef=${!!opts?.referenceImagePath}`);
+  // 使用 AbortController 设置超时（60秒创建任务）
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Accept': '*/*',
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-    },
-    body,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (fetchErr: any) {
+    clearTimeout(timeout);
+    if (fetchErr.name === 'AbortError') {
+      throw new Error('视频生成 API 创建任务超时（60秒），请检查网络或稍后重试');
+    }
+    throw fetchErr;
+  }
+  clearTimeout(timeout);
 
   if (!response.ok) {
     const errText = await response.text().catch(() => 'Unknown error');
@@ -473,13 +492,20 @@ export async function generateVideoClip(
   }
 
   const result: any = await response.json();
-  logger.info(`Video generation response: ${JSON.stringify(result).slice(0, 300)}`);
+  logger.info(`Video generation response: ${JSON.stringify(result).slice(0, 500)}`);
 
-  // Handle URL response
-  if (result.data?.[0]?.url) {
-    const videoUrl = result.data[0].url;
-    logger.info(`Downloading generated video: ${videoUrl}`);
-    const dlResp = await fetch(videoUrl);
+  // 尝试从各种格式中提取视频 URL
+  const directUrl =
+    result.data?.[0]?.url ||
+    result.data?.url ||
+    result.video_url ||
+    result.output?.url ||
+    result.output?.video_url ||
+    (typeof result.url === 'string' ? result.url : null);
+
+  if (directUrl) {
+    logger.info(`Got direct video URL: ${directUrl}`);
+    const dlResp = await fetch(directUrl);
     if (!dlResp.ok) {
       const errText = await dlResp.text().catch(() => 'Unknown');
       throw new Error(`视频下载失败: HTTP ${dlResp.status}, body: ${errText.slice(0, 200)}`);
@@ -489,57 +515,150 @@ export async function generateVideoClip(
     return saveFile(videoBuffer, filename);
   }
 
-  // Handle direct video URL string
-  if (typeof result.url === 'string') {
-    const videoUrl = result.url;
-    logger.info(`Downloading video from: ${videoUrl}`);
-    const dlResp = await fetch(videoUrl);
-    if (!dlResp.ok) throw new Error(`视频下载失败: HTTP ${dlResp.status}`);
-    const videoBuffer = Buffer.from(await dlResp.arrayBuffer());
-    const filename = `ai-video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
-    return saveFile(videoBuffer, filename);
+  // Handle task-based async response（Sora 异步模式）
+  // 兼容 id / task_id / jobId 等字段名
+  const taskId = result.id || result.task_id || result.job_id || result.taskId || result.jobId;
+  if (taskId) {
+    logger.info(`Video generation task created: ${taskId}, polling for completion...`);
+    return await pollVideoTask(baseUrl, String(taskId), apiKey);
   }
 
-  // Handle task-based async response (Sora pattern)
-  if (result.id) {
-    logger.info(`Video generation task created: ${result.id}, polling for completion...`);
-    return await pollVideoTask(baseUrl, result.id, apiKey);
+  // 检查是否有 success/status 标记表示任务已提交
+  if (result.success || result.status === 'pending' || result.status === 'processing' || result.status === 'running') {
+    // 可能是异步任务但没有返回 task_id，尝试从嵌套对象中查找
+    const nestedId = result.data?.id || result.data?.task_id || result.result?.id || result.result?.task_id;
+    if (nestedId) {
+      logger.info(`Found nested task ID: ${nestedId}, polling...`);
+      return await pollVideoTask(baseUrl, String(nestedId), apiKey);
+    }
+    logger.warn(`API returned success but no task ID found: ${JSON.stringify(result).slice(0, 300)}`);
+    throw new Error('视频任务已提交但未返回任务 ID，无法追踪状态');
   }
 
-  throw new Error('视频生成 API 返回格式异常: ' + JSON.stringify(result).slice(0, 200));
+  throw new Error('视频生成 API 返回格式异常: ' + JSON.stringify(result).slice(0, 300));
 }
 
-async function pollVideoTask(baseUrl: string, taskId: string, apiKey: string, maxRetries = 60, interval = 5000): Promise<string> {
-  const statusUrl = `${baseUrl}/v1/videos/${taskId}`;
+async function downloadVideoFromResult(result: any, contentUrl: string, apiKey: string): Promise<string> {
+  // 尝试从 /content 端点获取下载链接
+  try {
+    const contentResp = await fetch(contentUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (contentResp.ok) {
+      const content: any = await contentResp.json();
+      logger.info(`Content endpoint response: ${JSON.stringify(content).slice(0, 300)}`);
+      const contentUrl2 = content.url || content.video_url || content.data?.url || content.output?.url;
+      if (contentUrl2) {
+        logger.info(`Got video URL from content endpoint: ${contentUrl2}`);
+        const dlResp = await fetch(contentUrl2);
+        if (!dlResp.ok) throw new Error(`视频下载失败: HTTP ${dlResp.status}`);
+        const videoBuffer = Buffer.from(await dlResp.arrayBuffer());
+        const filename = `ai-video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
+        return saveFile(videoBuffer, filename);
+      }
+    }
+  } catch (contentErr: any) {
+    logger.warn(`Failed to get video content, trying direct URL: ${contentErr.message}`);
+  }
+
+  // 从状态响应中提取视频 URL
+  const videoUrl =
+    result.video_url ||
+    result.output?.url || result.output?.video_url ||
+    result.data?.url || result.data?.video_url || result.data?.[0]?.url ||
+    result.result?.url || result.result?.video_url ||
+    result.url;
+  if (!videoUrl) throw new Error('视频任务完成但无下载链接');
+
+  logger.info(`Got video URL from status: ${videoUrl}`);
+  const dlResp = await fetch(videoUrl);
+  if (!dlResp.ok) throw new Error(`视频下载失败: HTTP ${dlResp.status}`);
+  const videoBuffer = Buffer.from(await dlResp.arrayBuffer());
+  const filename = `ai-video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
+  return saveFile(videoBuffer, filename);
+}
+
+async function pollVideoTask(baseUrl: string, taskId: string, apiKey: string, maxRetries = 120, interval = 5000): Promise<string> {
+  const base = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+
+  // 尝试多种 URL 模式（不同 API 可能用不同路径）
+  const statusUrls = [
+    `${base}/videos/${taskId}`,
+    `${base}/videos/tasks/${taskId}`,
+    `${base}/tasks/${taskId}`,
+  ];
+  const contentUrls = [
+    `${base}/videos/${taskId}/content`,
+    `${base}/videos/tasks/${taskId}/content`,
+  ];
+
+  // 首次请求时探测哪个 URL 可用
+  let statusUrl = statusUrls[0];
+  let contentUrl = contentUrls[0];
+  let urlDetected = false;
 
   for (let i = 0; i < maxRetries; i++) {
     await new Promise(r => setTimeout(r, interval));
+
+    // 首次探测可用的 URL
+    if (!urlDetected) {
+      for (const url of statusUrls) {
+        try {
+          const testResp = await fetch(url, { method: 'GET', headers: { Authorization: `Bearer ${apiKey}` } });
+          if (testResp.status !== 404) {
+            statusUrl = url;
+            // 找到对应的 content URL
+            if (url.includes('/tasks/')) {
+              contentUrl = `${baseUrl}/v1/tasks/${taskId}/content`;
+            } else if (url.includes('/videos/tasks/')) {
+              contentUrl = `${baseUrl}/v1/videos/tasks/${taskId}/content`;
+            }
+            urlDetected = true;
+            logger.info(`Status URL detected: ${statusUrl} (status ${testResp.status})`);
+            // 如果这个请求成功了，直接处理结果
+            if (testResp.ok) {
+              const result: any = await testResp.json();
+              logger.info(`Video task ${taskId} status: ${result.status}`);
+              const isSuccess = ['completed', 'succeeded', 'done', 'ready', 'finished'].includes(result.status);
+              const isFailed = ['failed', 'cancelled', 'canceled', 'error'].includes(result.status);
+              if (isSuccess) {
+                return await downloadVideoFromResult(result, contentUrl, apiKey);
+              }
+              if (isFailed) {
+                throw new Error(`视频任务失败: ${result.error || result.message || '未知错误'}`);
+              }
+            }
+            break;
+          }
+        } catch {}
+      }
+      if (!urlDetected) {
+        logger.warn(`All status URLs returned 404 for task ${taskId}, retry ${i + 1}/${maxRetries}`);
+        continue;
+      }
+    }
 
     const resp = await fetch(statusUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
 
     if (!resp.ok) {
-      logger.warn(`Video task poll failed (${resp.status}), retry ${i + 1}/${maxRetries}`);
+      logger.warn(`Video task poll ${statusUrl} failed (${resp.status}), retry ${i + 1}/${maxRetries}`);
       continue;
     }
 
     const result: any = await resp.json();
-    logger.info(`Video task ${taskId} status: ${result.status}`);
+    logger.info(`Video task ${taskId} status: ${result.status}, response keys: ${Object.keys(result).join(',')}`);
 
-    if (result.status === 'completed') {
-      const videoUrl = result.video_url || result.data?.[0]?.url || result.url;
-      if (!videoUrl) throw new Error('视频任务完成但无下载链接');
+    const isSuccess = ['completed', 'succeeded', 'done', 'ready', 'finished'].includes(result.status);
+    const isFailed = ['failed', 'cancelled', 'canceled', 'error'].includes(result.status);
 
-      const dlResp = await fetch(videoUrl);
-      if (!dlResp.ok) throw new Error(`视频下载失败: HTTP ${dlResp.status}`);
-      const videoBuffer = Buffer.from(await dlResp.arrayBuffer());
-      const filename = `ai-video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`;
-      return saveFile(videoBuffer, filename);
+    if (isSuccess) {
+      return await downloadVideoFromResult(result, contentUrl, apiKey);
     }
 
-    if (result.status === 'failed') {
-      throw new Error(`视频任务失败: ${result.error || '未知错误'}`);
+    if (isFailed) {
+      throw new Error(`视频任务失败: ${result.error || result.message || '未知错误'}`);
     }
   }
 

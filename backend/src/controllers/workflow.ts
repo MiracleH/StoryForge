@@ -110,24 +110,24 @@ export const WorkflowController = {
 
       sendSSE(res, 'status', { message: '正在保存分析结果...' });
 
-      for (const chapter of result.chapters) {
+      for (const [idx, chapter] of result.chapters.entries()) {
         const chResult = db.prepare(
           'INSERT INTO chapters (project_id, title, content, order_index) VALUES (?, ?, ?, ?)'
-        ).run(projectId, chapter.title, chapter.content, chapter.order_index);
+        ).run(projectId, chapter.title || `第${idx + 1}章`, chapter.content || '', chapter.order_index ?? idx);
         const chapterId = chResult.lastInsertRowid;
 
         if (Array.isArray(chapter.scenes)) {
-          for (const scene of chapter.scenes) {
+          for (const [sIdx, scene] of chapter.scenes.entries()) {
             const scResult = db.prepare(
               'INSERT INTO scenes (chapter_id, title, description, location, time_of_day, mood, atmosphere, visual_description, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            ).run(chapterId, scene.title, scene.description, scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index);
+            ).run(chapterId, scene.title || `场景${sIdx + 1}`, scene.description || '', scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index ?? sIdx);
             const sceneId = scResult.lastInsertRowid;
 
             if (Array.isArray(scene.storyboards)) {
-              for (const sb of scene.storyboards) {
+              for (const [bIdx, sb] of scene.storyboards.entries()) {
                 db.prepare(
                   'INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                ).run(sceneId, sb.title, sb.description, sb.duration, sb.camera_angle, sb.camera_movement, sb.order_index);
+                ).run(sceneId, sb.title || `分镜${bIdx + 1}`, sb.description || '', sb.duration || 5, sb.camera_angle || 'medium', sb.camera_movement || 'static', sb.order_index ?? bIdx);
               }
             }
           }
@@ -237,24 +237,24 @@ export const WorkflowController = {
       // 获取已有角色名字，避免重复插入
       const existingCharNames = new Set(existingChars.map((c: any) => c.name));
 
-      for (const chapter of revised.chapters) {
+      for (const [idx, chapter] of revised.chapters.entries()) {
         const chResult = db.prepare(
           'INSERT INTO chapters (project_id, title, content, order_index) VALUES (?, ?, ?, ?)'
-        ).run(projectId, chapter.title, chapter.content, chapter.order_index);
+        ).run(projectId, chapter.title || `第${idx + 1}章`, chapter.content || '', chapter.order_index ?? idx);
         const chapterId = chResult.lastInsertRowid;
 
         if (Array.isArray(chapter.scenes)) {
-          for (const scene of chapter.scenes) {
+          for (const [sIdx, scene] of chapter.scenes.entries()) {
             const scResult = db.prepare(
               'INSERT INTO scenes (chapter_id, title, description, location, time_of_day, mood, atmosphere, visual_description, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            ).run(chapterId, scene.title, scene.description, scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index);
+            ).run(chapterId, scene.title || `场景${sIdx + 1}`, scene.description || '', scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index ?? sIdx);
             const sceneId = scResult.lastInsertRowid;
 
             if (Array.isArray(scene.storyboards)) {
-              for (const sb of scene.storyboards) {
+              for (const [bIdx, sb] of scene.storyboards.entries()) {
                 db.prepare(
                   'INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                ).run(sceneId, sb.title, sb.description, sb.duration, sb.camera_angle, sb.camera_movement, sb.order_index);
+                ).run(sceneId, sb.title || `分镜${bIdx + 1}`, sb.description || '', sb.duration || 5, sb.camera_angle || 'medium', sb.camera_movement || 'static', sb.order_index ?? bIdx);
               }
             }
           }
@@ -392,24 +392,24 @@ export const WorkflowController = {
 
         const existingCharNamesApply = new Set(existingChars.map((c: any) => c.name));
 
-        for (const chapter of revised.chapters) {
+        for (const [idx, chapter] of revised.chapters.entries()) {
           const chResult = db.prepare(
             'INSERT INTO chapters (project_id, title, content, order_index) VALUES (?, ?, ?, ?)'
-          ).run(projectId, chapter.title, chapter.content, chapter.order_index);
+          ).run(projectId, chapter.title || `第${idx + 1}章`, chapter.content || '', chapter.order_index ?? idx);
           const chapterId = chResult.lastInsertRowid;
 
           if (Array.isArray(chapter.scenes)) {
-            for (const scene of chapter.scenes) {
+            for (const [sIdx, scene] of chapter.scenes.entries()) {
               const scResult = db.prepare(
                 'INSERT INTO scenes (chapter_id, title, description, location, time_of_day, mood, atmosphere, visual_description, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-              ).run(chapterId, scene.title, scene.description, scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index);
+              ).run(chapterId, scene.title || `场景${sIdx + 1}`, scene.description || '', scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index ?? sIdx);
               const sceneId = scResult.lastInsertRowid;
 
               if (Array.isArray(scene.storyboards)) {
-                for (const sb of scene.storyboards) {
+                for (const [bIdx, sb] of scene.storyboards.entries()) {
                   db.prepare(
                     'INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                  ).run(sceneId, sb.title, sb.description, sb.duration, sb.camera_angle, sb.camera_movement, sb.order_index);
+                  ).run(sceneId, sb.title || `分镜${bIdx + 1}`, sb.description || '', sb.duration || 5, sb.camera_angle || 'medium', sb.camera_movement || 'static', sb.order_index ?? bIdx);
                 }
               }
             }
@@ -970,8 +970,10 @@ export const WorkflowController = {
       const props = db.prepare('SELECT id, name, description FROM props WHERE project_id = ?').all(projectId) as any[];
 
       let dialogueCount = 0;
+      let sceneCount = 0;
       for (const ch of chapters) {
         const scenes = db.prepare('SELECT id FROM scenes WHERE chapter_id = ?').all(ch.id) as any[];
+        sceneCount += scenes.length;
         for (const sc of scenes) {
           const count = db.prepare('SELECT COUNT(*) as c FROM dialogues WHERE storyboard_id IN (SELECT id FROM storyboards WHERE scene_id = ?)').get(sc.id) as any;
           dialogueCount += count.c;
@@ -981,6 +983,7 @@ export const WorkflowController = {
       analysis = {
         chapters: chapters.length,
         characters: characters.length,
+        scenes: sceneCount,
         props: props.length,
         dialogues: dialogueCount,
       };
@@ -1066,24 +1069,24 @@ export const WorkflowController = {
 
           const result = await analyzeScriptWithLLM(project.novel_text, project.style_preset || 'anime', llmOpts);
 
-          for (const chapter of result.chapters) {
+          for (const [idx, chapter] of result.chapters.entries()) {
             const chResult = db.prepare(
               'INSERT INTO chapters (project_id, title, content, order_index) VALUES (?, ?, ?, ?)'
-            ).run(projectId, chapter.title, chapter.content, chapter.order_index);
+            ).run(projectId, chapter.title || `第${idx + 1}章`, chapter.content || '', chapter.order_index ?? idx);
             const chapterId = chResult.lastInsertRowid;
 
             if (Array.isArray(chapter.scenes)) {
-              for (const scene of chapter.scenes) {
+              for (const [sIdx, scene] of chapter.scenes.entries()) {
                 const scResult = db.prepare(
                   'INSERT INTO scenes (chapter_id, title, description, location, time_of_day, mood, atmosphere, visual_description, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-                ).run(chapterId, scene.title, scene.description, scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index);
+                ).run(chapterId, scene.title || `场景${sIdx + 1}`, scene.description || '', scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index ?? sIdx);
                 const sceneId = scResult.lastInsertRowid;
 
                 if (Array.isArray(scene.storyboards)) {
-                  for (const sb of scene.storyboards) {
+                  for (const [bIdx, sb] of scene.storyboards.entries()) {
                     db.prepare(
                       'INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                    ).run(sceneId, sb.title, sb.description, sb.duration, sb.camera_angle, sb.camera_movement, sb.order_index);
+                    ).run(sceneId, sb.title || `分镜${bIdx + 1}`, sb.description || '', sb.duration || 5, sb.camera_angle || 'medium', sb.camera_movement || 'static', sb.order_index ?? bIdx);
                   }
                 }
               }
@@ -1338,24 +1341,24 @@ export const EpisodeWorkflowController = {
 
       sendSSE(res, 'status', { message: '正在保存分析结果...' });
 
-      for (const chapter of result.chapters) {
+      for (const [idx, chapter] of result.chapters.entries()) {
         const chResult = db.prepare(
           'INSERT INTO chapters (project_id, episode_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)'
-        ).run(projectId, episodeId, chapter.title, chapter.content, chapter.order_index);
+        ).run(projectId, episodeId, chapter.title || `第${idx + 1}章`, chapter.content || '', chapter.order_index ?? idx);
         const chapterId = chResult.lastInsertRowid;
 
         if (Array.isArray(chapter.scenes)) {
-          for (const scene of chapter.scenes) {
+          for (const [sIdx, scene] of chapter.scenes.entries()) {
             const scResult = db.prepare(
               'INSERT INTO scenes (chapter_id, title, description, location, time_of_day, mood, atmosphere, visual_description, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            ).run(chapterId, scene.title, scene.description, scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index);
+            ).run(chapterId, scene.title || `场景${sIdx + 1}`, scene.description || '', scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index ?? sIdx);
             const sceneId = scResult.lastInsertRowid;
 
             if (Array.isArray(scene.storyboards)) {
-              for (const sb of scene.storyboards) {
+              for (const [bIdx, sb] of scene.storyboards.entries()) {
                 db.prepare(
                   'INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                ).run(sceneId, sb.title, sb.description, sb.duration, sb.camera_angle, sb.camera_movement, sb.order_index);
+                ).run(sceneId, sb.title || `分镜${bIdx + 1}`, sb.description || '', sb.duration || 5, sb.camera_angle || 'medium', sb.camera_movement || 'static', sb.order_index ?? bIdx);
               }
             }
           }
@@ -1462,24 +1465,24 @@ export const EpisodeWorkflowController = {
 
       db.prepare('DELETE FROM chapters WHERE episode_id = ?').run(episodeId);
 
-      for (const chapter of revised.chapters) {
+      for (const [idx, chapter] of revised.chapters.entries()) {
         const chResult = db.prepare(
           'INSERT INTO chapters (project_id, episode_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)'
-        ).run(episode.project_id, episodeId, chapter.title, chapter.content, chapter.order_index);
+        ).run(episode.project_id, episodeId, chapter.title || `第${idx + 1}章`, chapter.content || '', chapter.order_index ?? idx);
         const chapterId = chResult.lastInsertRowid;
 
         if (Array.isArray(chapter.scenes)) {
-          for (const scene of chapter.scenes) {
+          for (const [sIdx, scene] of chapter.scenes.entries()) {
             const scResult = db.prepare(
               'INSERT INTO scenes (chapter_id, title, description, location, time_of_day, mood, atmosphere, visual_description, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            ).run(chapterId, scene.title, scene.description, scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index);
+            ).run(chapterId, scene.title || `场景${sIdx + 1}`, scene.description || '', scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index ?? sIdx);
             const sceneId = scResult.lastInsertRowid;
 
             if (Array.isArray(scene.storyboards)) {
-              for (const sb of scene.storyboards) {
+              for (const [bIdx, sb] of scene.storyboards.entries()) {
                 db.prepare(
                   'INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                ).run(sceneId, sb.title, sb.description, sb.duration, sb.camera_angle, sb.camera_movement, sb.order_index);
+                ).run(sceneId, sb.title || `分镜${bIdx + 1}`, sb.description || '', sb.duration || 5, sb.camera_angle || 'medium', sb.camera_movement || 'static', sb.order_index ?? bIdx);
               }
             }
           }
@@ -1611,24 +1614,24 @@ export const EpisodeWorkflowController = {
 
         const existingCharNamesApplyEp = new Set(existingChars.map((c: any) => c.name));
 
-        for (const chapter of revised.chapters) {
+        for (const [idx, chapter] of revised.chapters.entries()) {
           const chResult = db.prepare(
             'INSERT INTO chapters (project_id, episode_id, title, content, order_index) VALUES (?, ?, ?, ?, ?)'
-          ).run(episode.project_id, episodeId, chapter.title, chapter.content, chapter.order_index);
+          ).run(episode.project_id, episodeId, chapter.title || `第${idx + 1}章`, chapter.content || '', chapter.order_index ?? idx);
           const chapterId = chResult.lastInsertRowid;
 
           if (Array.isArray(chapter.scenes)) {
-            for (const scene of chapter.scenes) {
+            for (const [sIdx, scene] of chapter.scenes.entries()) {
               const scResult = db.prepare(
                 'INSERT INTO scenes (chapter_id, title, description, location, time_of_day, mood, atmosphere, visual_description, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-              ).run(chapterId, scene.title, scene.description, scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index);
+              ).run(chapterId, scene.title || `场景${sIdx + 1}`, scene.description || '', scene.location, scene.time_of_day, scene.mood, scene.atmosphere, scene.visual_description, scene.order_index ?? sIdx);
               const sceneId = scResult.lastInsertRowid;
 
               if (Array.isArray(scene.storyboards)) {
-                for (const sb of scene.storyboards) {
+                for (const [bIdx, sb] of scene.storyboards.entries()) {
                   db.prepare(
                     'INSERT INTO storyboards (scene_id, title, description, duration, camera_angle, camera_movement, order_index) VALUES (?, ?, ?, ?, ?, ?, ?)'
-                  ).run(sceneId, sb.title, sb.description, sb.duration, sb.camera_angle, sb.camera_movement, sb.order_index);
+                  ).run(sceneId, sb.title || `分镜${bIdx + 1}`, sb.description || '', sb.duration || 5, sb.camera_angle || 'medium', sb.camera_movement || 'static', sb.order_index ?? bIdx);
                 }
               }
             }
@@ -2132,9 +2135,10 @@ export const EpisodeWorkflowController = {
 
         res.json({ success: true, data: { status: 'completed', image_url: imageUrl, last_frame_url: lastUrl, reference_count: refImages.length } });
       } catch (lastErr: any) {
-        // Last frame failed, but first frame succeeded - still mark as completed
+        // Last frame failed - mark as failed since we need both frames
         logger.error(`尾帧生成失败 (asset ${assetId}):`, lastErr.message);
-        res.json({ success: true, data: { status: 'completed', image_url: imageUrl, last_frame_url: null, last_frame_error: lastErr.message, reference_count: refImages.length } });
+        GeneratedAssetModel.updateStatus(assetId, 'failed', undefined, `尾帧生成失败: ${lastErr.message}`);
+        throw createError(`尾帧生成失败: ${lastErr.message}`, 500);
       }
     } catch (err: any) {
       GeneratedAssetModel.updateStatus(assetId, 'failed', undefined, err.message);
@@ -2246,15 +2250,17 @@ export const EpisodeWorkflowController = {
       const props = db.prepare('SELECT id, name, description FROM props WHERE project_id = ?').all(episode.project_id) as any[];
 
       let dialogueCount = 0;
+      let sceneCount = 0;
       for (const ch of chapters) {
         const scenes = db.prepare('SELECT id FROM scenes WHERE chapter_id = ?').all(ch.id) as any[];
+        sceneCount += scenes.length;
         for (const sc of scenes) {
           const count = db.prepare('SELECT COUNT(*) as c FROM dialogues WHERE storyboard_id IN (SELECT id FROM storyboards WHERE scene_id = ?)').get(sc.id) as any;
           dialogueCount += count.c;
         }
       }
 
-      analysis = { chapters: chapters.length, characters: characters.length, props: props.length, dialogues: dialogueCount };
+      analysis = { chapters: chapters.length, characters: characters.length, scenes: sceneCount, props: props.length, dialogues: dialogueCount };
     }
 
     // 获取漫剧剧本
@@ -2405,39 +2411,73 @@ export const EpisodeWorkflowController = {
       throw createError(`工作流当前状态为 ${state?.state || 'idle'}，不允许此操作`, 400);
     }
 
-    // Move to generating_video if not already
-    if (state.state !== 'generating_video') {
-      if (!transitionWorkflowEpisode(episodeId, state.state as any, 'generating_video')) {
-        throw createError('状态转换失败', 500);
-      }
-    }
+    // 不在这里转换到 generating_video，保持当前状态，让用户还能看到前面的步骤
+    // 状态转换只在合成最终视频时触发
 
     // Update status to generating
     db.prepare("UPDATE generated_assets SET status = 'generating', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(assetId);
 
-    try {
-      const metadata = JSON.parse(asset.metadata || '{}');
-      const videoPath = await generateVideoClip(asset.prompt, {
-        version: metadata.storyboard_version || 'seedance',
-        model: req.body.model,
-        referenceImagePath: metadata.reference_image || undefined,
-        lastFramePath: metadata.last_frame_image || undefined,
-        seconds: req.body.seconds || String(metadata.duration || 5),
-        ratio: req.body.ratio || metadata.ratio || undefined,
-        resolution: req.body.resolution || metadata.resolution || undefined,
-        generateAudio: req.body.generate_audio ?? metadata.generate_audio ?? true,
-        cameraFixed: req.body.camera_fixed ?? metadata.camera_fixed ?? false,
-        api_key: req.body.api_key,
-        base_url: req.body.base_url,
-      });
+    // Fire and forget - don't await, return immediately to avoid timeout
+    (async () => {
+      try {
+        const metadata = JSON.parse(asset.metadata || '{}');
 
-      db.prepare("UPDATE generated_assets SET status = 'completed', image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(videoPath, assetId);
-    } catch (err: any) {
-      db.prepare("UPDATE generated_assets SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(assetId);
-      throw err;
-    }
+        // 实时查询匹配的关键帧图片（不依赖卡片创建时的 metadata）
+        let referenceImagePath: string | undefined;
+        let lastFramePath: string | undefined;
 
-    res.json({ success: true, data: { assetId, status: 'completed' } });
+        // 从关键帧卡片获取首帧和尾帧
+        const keyframe = db.prepare(`
+          SELECT image_url, thumbnail_url FROM generated_assets
+          WHERE episode_id = ? AND asset_type = 'keyframe' AND entity_type = 'storyboard'
+            AND entity_id = ? AND status = 'completed'
+            AND image_url IS NOT NULL AND image_url != 'pending'
+          LIMIT 1
+        `).get(episodeId, metadata.storyboard_id) as any;
+
+        if (keyframe?.image_url) {
+          referenceImagePath = keyframe.image_url;
+          logger.info(`Using keyframe first frame: ${referenceImagePath}`);
+        }
+        if (keyframe?.thumbnail_url) {
+          lastFramePath = keyframe.thumbnail_url;
+          logger.info(`Using keyframe last frame: ${lastFramePath}`);
+        }
+
+        // 回退到 storyboards 表的首尾帧
+        if (!referenceImagePath) {
+          const sb = db.prepare('SELECT image_url, last_frame_image FROM storyboards WHERE id = ?').get(metadata.storyboard_id) as any;
+          if (sb?.image_url) referenceImagePath = sb.image_url;
+          if (sb?.last_frame_image) lastFramePath = sb.last_frame_image;
+        }
+
+        // 回退到 metadata 中的图片
+        if (!referenceImagePath) referenceImagePath = metadata.reference_image || undefined;
+        if (!lastFramePath) lastFramePath = metadata.last_frame_image || undefined;
+
+        if (!referenceImagePath && !lastFramePath) {
+          logger.warn(`No reference image found for storyboard ${metadata.storyboard_id}`);
+        }
+
+        const videoPath = await generateVideoClip(asset.prompt, {
+          version: metadata.storyboard_version || 'sora',
+          model: req.body.model,
+          referenceImagePath,
+          lastFramePath,
+          seconds: req.body.seconds || String(metadata.duration || 5),
+          api_key: req.body.api_key,
+          base_url: req.body.base_url,
+        });
+
+        db.prepare("UPDATE generated_assets SET status = 'completed', image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(videoPath, assetId);
+        logger.info(`Video clip ${assetId} completed: ${videoPath}`);
+      } catch (err: any) {
+        logger.error(`Video clip ${assetId} failed:`, err.message);
+        db.prepare("UPDATE generated_assets SET status = 'failed', metadata = json_set(COALESCE(metadata, '{}'), '$.error', ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(err.message, assetId);
+      }
+    })();
+
+    res.json({ success: true, data: { assetId, status: 'generating' }, message: '视频生成已启动，请等待完成' });
   },
 
   async mergeVideoClips(req: AuthRequest, res: Response) {

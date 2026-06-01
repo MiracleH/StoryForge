@@ -555,80 +555,64 @@ export async function analyzeScriptWithLLM(
     throw new Error('AI 文本分析未配置，请设置 AI_TEXT_API_KEY 或 AI_API_KEY');
   }
 
-  const maxChunkSize = 8000;
-  const chunks = chunkText(text, maxChunkSize);
-  logger.info(`LLM 分析: 文本 ${text.length} 字，分为 ${chunks.length} 个块`);
+  const episodePrefix = episodeContext
+    ? `[当前正在分析第 ${episodeContext.episodeNumber} 集：${episodeContext.episodeTitle}]\n\n`
+    : '';
 
-  const results: ScriptAnalysisResult[] = [];
+  const prompt = episodePrefix + ANALYSIS_PROMPT + text;
+  logger.info(`LLM 分析: 文本 ${text.length} 字, prompt 总长 ${prompt.length} 字`);
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const contextPrefix = chunks.length > 1
-      ? `[这是第 ${i + 1}/${chunks.length} 部分，请只分析此部分内容]\n\n`
-      : '';
+  try {
+    const raw = await generateText(prompt, {
+      temperature: 0.3,
+      api_key: opts?.api_key,
+      base_url: opts?.base_url,
+      model: opts?.model,
+    });
 
-    const episodePrefix = episodeContext
-      ? `[当前正在分析第 ${episodeContext.episodeNumber} 集：${episodeContext.episodeTitle}]\n\n`
-      : '';
+    const parsed = extractJSON(raw) as ScriptAnalysisResult;
 
-    const prompt = contextPrefix + episodePrefix + ANALYSIS_PROMPT + chunk;
-
-    try {
-      const raw = await generateText(prompt, {
-        temperature: 0.3,
-        api_key: opts?.api_key,
-        base_url: opts?.base_url,
-        model: opts?.model,
-      });
-
-      const parsed = extractJSON(raw) as ScriptAnalysisResult;
-
+    if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
+      const keys = Object.keys(parsed || {});
+      logger.error(`LLM 返回 JSON keys: [${keys.join(', ')}], raw 长度: ${raw.length}, 末尾100字: ${raw.slice(-100)}`);
+      function findChapters(obj: any, depth: number = 0): { key: string; val: any } | null {
+        if (!obj || typeof obj !== 'object' || depth > 5) return null;
+        for (const k of Object.keys(obj)) {
+          const v = obj[k];
+          if (v && typeof v === 'object' && Array.isArray(v.chapters)) return { key: k, val: v };
+        }
+        for (const k of Object.keys(obj)) {
+          const v = obj[k];
+          if (v && typeof v === 'object' && !Array.isArray(v)) {
+            const found = findChapters(v, depth + 1);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      const found = findChapters(parsed);
+      if (found) {
+        logger.info(`从嵌套路径中找到 chapters (key: "${found.key}")`);
+        Object.assign(parsed, found.val);
+      }
       if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
-        // 某些 LLM 可能把结果包在 wrapper 里（支持多层嵌套），递归查找 chapters
-        const keys = Object.keys(parsed || {});
-        logger.error(`LLM 返回 JSON keys: [${keys.join(', ')}], raw 长度: ${raw.length}, 末尾100字: ${raw.slice(-100)}`);
-        function findChapters(obj: any, depth: number = 0): { key: string; val: any } | null {
-          if (!obj || typeof obj !== 'object' || depth > 5) return null;
-          for (const k of Object.keys(obj)) {
-            const v = obj[k];
-            if (v && typeof v === 'object' && Array.isArray(v.chapters)) return { key: k, val: v };
-          }
-          for (const k of Object.keys(obj)) {
-            const v = obj[k];
-            if (v && typeof v === 'object' && !Array.isArray(v)) {
-              const found = findChapters(v, depth + 1);
-              if (found) return found;
-            }
-          }
-          return null;
-        }
-        const found = findChapters(parsed);
-        if (found) {
-          logger.info(`从嵌套路径中找到 chapters (key: "${found.key}")`);
-          Object.assign(parsed, found.val);
-        }
-        if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
-          const preview = JSON.stringify(parsed).slice(0, 300);
-          throw new Error(`LLM 返回数据缺少 chapters（keys: [${keys.join(', ')}], preview: ${preview}）`);
-        }
+        const preview = JSON.stringify(parsed).slice(0, 300);
+        throw new Error(`LLM 返回数据缺少 chapters（keys: [${keys.join(', ')}], preview: ${preview}）`);
       }
-      if (!parsed.characters || !Array.isArray(parsed.characters)) parsed.characters = [];
-      if (!parsed.props || !Array.isArray(parsed.props)) parsed.props = [];
-      if (!parsed.dialogues || !Array.isArray(parsed.dialogues)) parsed.dialogues = [];
-      if (!parsed.sentiment) {
-        parsed.sentiment = { positive: 0.33, negative: 0.33, neutral: 0.34, dominant: 'neutral' };
-      }
-
-      results.push(parsed);
-    } catch (err: any) {
-      logger.error(`LLM 分析第 ${i + 1} 块失败:`, err.message);
-      throw new Error(`LLM 剧本分析失败: ${err.message}`);
     }
-  }
+    if (!parsed.characters || !Array.isArray(parsed.characters)) parsed.characters = [];
+    if (!parsed.props || !Array.isArray(parsed.props)) parsed.props = [];
+    if (!parsed.dialogues || !Array.isArray(parsed.dialogues)) parsed.dialogues = [];
+    if (!parsed.sentiment) {
+      parsed.sentiment = { positive: 0.33, negative: 0.33, neutral: 0.34, dominant: 'neutral' };
+    }
 
-  const merged = mergeResults(results);
-  logger.info(`LLM 分析完成: ${merged.chapters.length} 章, ${merged.characters.length} 角色, ${merged.props.length} 道具, ${merged.dialogues.length} 对白`);
-  return merged;
+    logger.info(`LLM 分析完成: ${parsed.chapters.length} 章, ${parsed.characters.length} 角色, ${parsed.props.length} 道具, ${parsed.dialogues.length} 对白`);
+    return parsed;
+  } catch (err: any) {
+    logger.error(`LLM 分析失败:`, err.message);
+    throw new Error(`LLM 剧本分析失败: ${err.message}`);
+  }
 }
 
 export async function reviewScriptWithLLM(
@@ -737,88 +721,69 @@ export async function analyzeScriptWithLLMStream(
     throw new Error('AI 文本分析未配置，请设置 AI_TEXT_API_KEY 或 AI_API_KEY');
   }
 
-  const maxChunkSize = 8000;
-  const chunks = chunkText(text, maxChunkSize);
-  logger.info(`LLM 流式分析: 文本 ${text.length} 字，分为 ${chunks.length} 个块`);
+  logger.info(`LLM 流式分析: 文本 ${text.length} 字`);
 
-  const results: ScriptAnalysisResult[] = [];
+  const episodePrefix = episodeContext
+    ? `[当前正在分析第 ${episodeContext.episodeNumber} 集：${episodeContext.episodeTitle}]\n\n`
+    : '';
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const contextPrefix = chunks.length > 1
-      ? `[这是第 ${i + 1}/${chunks.length} 部分，请只分析此部分内容]\n\n`
-      : '';
+  const prompt = episodePrefix + ANALYSIS_PROMPT + text;
+  let raw = '';
 
-    if (chunks.length > 1) {
-      onChunk(`\n\n--- 正在分析第 ${i + 1}/${chunks.length} 部分 ---\n\n`);
+  try {
+    for await (const token of generateTextStream(prompt, {
+      temperature: 0.3,
+      api_key: opts?.api_key,
+      base_url: opts?.base_url,
+      model: opts?.model,
+    })) {
+      raw += token;
+      onChunk(token);
     }
 
-    const episodePrefix = episodeContext
-      ? `[当前正在分析第 ${episodeContext.episodeNumber} 集：${episodeContext.episodeTitle}]\n\n`
-      : '';
+    const parsed = extractJSON(raw) as ScriptAnalysisResult;
 
-    const prompt = contextPrefix + episodePrefix + ANALYSIS_PROMPT + chunk;
-    let raw = '';
-
-    try {
-      for await (const token of generateTextStream(prompt, {
-        temperature: 0.3,
-        api_key: opts?.api_key,
-        base_url: opts?.base_url,
-        model: opts?.model,
-      })) {
-        raw += token;
-        onChunk(token);
+    if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
+      const keys = Object.keys(parsed || {});
+      logger.error(`LLM 返回 JSON keys: [${keys.join(', ')}], raw 长度: ${raw.length}, 末尾100字: ${raw.slice(-100)}`);
+      function findChapters(obj: any, depth: number = 0): { key: string; val: any } | null {
+        if (!obj || typeof obj !== 'object' || depth > 5) return null;
+        for (const k of Object.keys(obj)) {
+          const v = obj[k];
+          if (v && typeof v === 'object' && Array.isArray(v.chapters)) return { key: k, val: v };
+        }
+        for (const k of Object.keys(obj)) {
+          const v = obj[k];
+          if (v && typeof v === 'object' && !Array.isArray(v)) {
+            const found = findChapters(v, depth + 1);
+            if (found) return found;
+          }
+        }
+        return null;
       }
-
-      const parsed = extractJSON(raw) as ScriptAnalysisResult;
-
+      const found = findChapters(parsed);
+      if (found) {
+        logger.info(`从嵌套路径中找到 chapters (key: "${found.key}")`);
+        Object.assign(parsed, found.val);
+      }
       if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
-        // 某些 LLM 可能把结果包在 wrapper 里（支持多层嵌套），递归查找 chapters
-        const keys = Object.keys(parsed || {});
-        logger.error(`LLM 返回 JSON keys: [${keys.join(', ')}], raw 长度: ${raw.length}, 末尾100字: ${raw.slice(-100)}`);
-        function findChapters(obj: any, depth: number = 0): { key: string; val: any } | null {
-          if (!obj || typeof obj !== 'object' || depth > 5) return null;
-          for (const k of Object.keys(obj)) {
-            const v = obj[k];
-            if (v && typeof v === 'object' && Array.isArray(v.chapters)) return { key: k, val: v };
-          }
-          for (const k of Object.keys(obj)) {
-            const v = obj[k];
-            if (v && typeof v === 'object' && !Array.isArray(v)) {
-              const found = findChapters(v, depth + 1);
-              if (found) return found;
-            }
-          }
-          return null;
-        }
-        const found = findChapters(parsed);
-        if (found) {
-          logger.info(`从嵌套路径中找到 chapters (key: "${found.key}")`);
-          Object.assign(parsed, found.val);
-        }
-        if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
-          const preview = JSON.stringify(parsed).slice(0, 300);
-          throw new Error(`LLM 返回数据缺少 chapters（keys: [${keys.join(', ')}], preview: ${preview}）`);
-        }
+        const preview = JSON.stringify(parsed).slice(0, 300);
+        throw new Error(`LLM 返回数据缺少 chapters（keys: [${keys.join(', ')}], preview: ${preview}）`);
       }
-      if (!parsed.characters || !Array.isArray(parsed.characters)) parsed.characters = [];
-      if (!parsed.props || !Array.isArray(parsed.props)) parsed.props = [];
-      if (!parsed.dialogues || !Array.isArray(parsed.dialogues)) parsed.dialogues = [];
-      if (!parsed.sentiment) {
-        parsed.sentiment = { positive: 0.33, negative: 0.33, neutral: 0.34, dominant: 'neutral' };
-      }
-
-      results.push(parsed);
-    } catch (err: any) {
-      logger.error(`LLM 流式分析第 ${i + 1} 块失败:`, err.message);
-      throw new Error(`LLM 剧本分析失败: ${err.message}`);
     }
-  }
+    if (!parsed.characters || !Array.isArray(parsed.characters)) parsed.characters = [];
+    if (!parsed.props || !Array.isArray(parsed.props)) parsed.props = [];
+    if (!parsed.dialogues || !Array.isArray(parsed.dialogues)) parsed.dialogues = [];
+    if (!parsed.sentiment) {
+      parsed.sentiment = { positive: 0.33, negative: 0.33, neutral: 0.34, dominant: 'neutral' };
+    }
 
-  const merged = mergeResults(results);
-  logger.info(`LLM 流式分析完成: ${merged.chapters.length} 章, ${merged.characters.length} 角色`);
-  return merged;
+    logger.info(`LLM 流式分析完成: ${parsed.chapters.length} 章, ${parsed.characters.length} 角色`);
+    return parsed;
+  } catch (err: any) {
+    logger.error(`LLM 流式分析失败:`, err.message);
+    throw new Error(`LLM 剧本分析失败: ${err.message}`);
+  }
 }
 
 /**
@@ -987,11 +952,8 @@ export async function suggestEpisodes(
     throw new Error('AI 文本分析未配置');
   }
 
-  // Truncate to reasonable length for suggestion
-  const maxLen = 15000;
-  const truncated = text.length > maxLen ? text.substring(0, maxLen) + '...(文本已截取前15000字)' : text;
-
-  const prompt = SUGGEST_EPISODES_PROMPT + truncated;
+  const prompt = SUGGEST_EPISODES_PROMPT + text;
+  logger.info(`剧集建议: 原文 ${text.length} 字，完整发送`);
 
   try {
     const raw = await generateText(prompt, {
@@ -999,6 +961,7 @@ export async function suggestEpisodes(
       api_key: opts?.api_key,
       base_url: opts?.base_url,
       model: opts?.model,
+      systemMessage: '你是一个专业的短视频编剧。你必须只返回 JSON 格式，不要返回任何其他内容。',
     });
 
     const parsed = extractJSON(raw) as EpisodeSuggestion;
@@ -1017,7 +980,7 @@ export async function suggestEpisodes(
       parsed.reasoning = '';
     }
 
-    // Clamp end_char to text length
+    // Clamp to text length
     for (const ep of parsed.episode_breaks) {
       if (ep.end_char > text.length) ep.end_char = text.length;
       if (ep.start_char < 0) ep.start_char = 0;

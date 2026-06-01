@@ -187,9 +187,10 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
 
         {analysis && (
           <Card size="small" style={{ marginBottom: 16 }}>
-            <Descriptions column={4} size="small">
+            <Descriptions column={5} size="small">
               <Descriptions.Item label="章节数">{analysis.chapters}</Descriptions.Item>
               <Descriptions.Item label="角色数">{analysis.characters}</Descriptions.Item>
+              <Descriptions.Item label="场景数">{analysis.scenes || 0}</Descriptions.Item>
               <Descriptions.Item label="道具数">{analysis.props || 0}</Descriptions.Item>
               <Descriptions.Item label="对白数">{analysis.dialogues}</Descriptions.Item>
             </Descriptions>
@@ -288,9 +289,10 @@ const Step1Analysis: React.FC<Props> = ({ projectId, episodeId }) => {
       <div>
         <Title level={4}>剧本分析结果</Title>
         <Card size="small" style={{ marginBottom: 16 }}>
-          <Descriptions column={4} size="small">
+          <Descriptions column={5} size="small">
             <Descriptions.Item label="章节数">{analysis.chapters}</Descriptions.Item>
             <Descriptions.Item label="角色数">{analysis.characters}</Descriptions.Item>
+            <Descriptions.Item label="场景数">{analysis.scenes || 0}</Descriptions.Item>
             <Descriptions.Item label="道具数">{analysis.props || 0}</Descriptions.Item>
             <Descriptions.Item label="对白数">{analysis.dialogues}</Descriptions.Item>
           </Descriptions>

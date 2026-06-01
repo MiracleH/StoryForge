@@ -128,7 +128,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
   };
 
   const handleGenerateAll = async () => {
-    const pending = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed' || (k.status === 'completed' && !k.thumbnail_url));
+    const pending = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed');
     for (const k of pending) {
       await handleGenerateSingle(k.id);
     }
@@ -143,7 +143,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
     ? keyframes.filter(k => k.storyboard_version === activeVersion)
     : keyframes;
 
-  const pendingCount = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed' || (k.status === 'completed' && !k.thumbnail_url)).length;
+  const pendingCount = filteredKeyframes.filter(k => k.status === 'pending' || k.status === 'failed').length;
   const completedCount = filteredKeyframes.filter(k => k.status === 'completed').length;
   const failedCount = filteredKeyframes.filter(k => k.status === 'failed').length;
   const seedanceCount = keyframes.filter(k => k.storyboard_version === 'seedance').length;
@@ -179,7 +179,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
             )
           }
           actions={[
-            (kf.status === 'pending' || kf.status === 'failed' || (kf.status === 'completed' && !kf.thumbnail_url)) ? (
+            (kf.status === 'pending' || kf.status === 'failed') ? (
               <Button
                 type="primary"
                 size="small"
@@ -187,7 +187,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
                 loading={isGenerating}
                 onClick={(e) => { e.stopPropagation(); handleGenerateSingle(kf.id); }}
               >
-                {isGenerating ? '生成中' : (kf.status === 'completed' ? '补尾帧' : '生成')}
+                {isGenerating ? '生成中' : '生成'}
               </Button>
             ) : (
               <Button
@@ -206,7 +206,7 @@ const Step4Keyframes: React.FC<Props> = ({ projectId, episodeId }) => {
               <Space size={4}>
                 <Text ellipsis style={{ maxWidth: 120 }}>{kf.name || kf.storyboard_title || '首尾帧'}</Text>
                 <Tag color={kf.status === 'completed' ? 'green' : kf.status === 'failed' ? 'red' : kf.status === 'generating' ? 'processing' : 'blue'}>
-                  {kf.status === 'completed' ? (kf.thumbnail_url ? '首尾帧' : '首帧') : kf.status === 'failed' ? '失败' : kf.status === 'generating' ? '生成中' : '待生成'}
+                  {kf.status === 'completed' ? '首尾帧' : kf.status === 'failed' ? '失败' : kf.status === 'generating' ? '生成中' : '待生成'}
                 </Tag>
               </Space>
             }
